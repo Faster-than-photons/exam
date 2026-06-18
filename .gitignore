@@ -1,0 +1,24 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 题库数据文件夹（含题库 JSON、历史记录、错题本）
+banks/
+
+# 旧版题库文件（根目录遗留）
+questions.json
+history.json
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# IDE 配置
+.vscode/
+.idea/
+
+# 操作系统
+.DS_Store
+Thumbs.db
