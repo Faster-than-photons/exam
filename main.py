@@ -458,18 +458,20 @@ class MainApp:
         self._apply_button_font(btn_font)
 
     def _apply_large(self):
-        """大型布局：大字体、宽间距、按钮撑满窗口宽度。"""
+        """大型布局：大字体、宽间距、按钮等比例撑满窗口。"""
         self._title_frame.configure(padding=(25, 15, 25, 8))
         self._title_label.configure(font=("Microsoft YaHei", 20, "bold"))
         self._stats_label.configure(font=("Microsoft YaHei", 10))
 
-        # 按钮框架：横向填满，跟随窗口宽度
-        self._btn_frame.pack_configure(fill="x", expand=True, padx=30)
+        # 按钮框架：双向填满，跟随窗口宽高
+        self._btn_frame.pack_configure(fill="both", expand=True, padx=30, pady=10)
 
         btn_font = ("Microsoft YaHei", 11)
         for btn in self._buttons:
             btn.configure(width=0)  # 0 = 自动宽度（由 fill 决定）
-            btn.pack_configure(pady=5, fill="x")
+            btn.pack_configure(pady=4, fill="both", expand=True)
+
+        self._apply_button_font(btn_font)
 
         self._apply_button_font(btn_font)
 
