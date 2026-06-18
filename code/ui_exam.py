@@ -62,9 +62,11 @@ class ExamSetupWindow:
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill="x", pady=(10, 0))
         ttk.Button(btn_frame, text="开始考试",
-                   command=self._start_exam).pack(side="right", padx=5)
+                   command=self._start_exam,
+                   takefocus=0).pack(side="right", padx=5)
         ttk.Button(btn_frame, text="返回",
-                   command=self._on_close).pack(side="right", padx=5)
+                   command=self._on_close,
+                   takefocus=0).pack(side="right", padx=5)
 
     def _start_exam(self):
         selected = []
@@ -188,7 +190,8 @@ class ExamWindow:
                   foreground="gray").pack(side="left", padx=15)
 
         ttk.Button(top_frame, text="提交试卷",
-                   command=self._submit_exam).pack(side="right", padx=10)
+                   command=self._submit_exam,
+                   takefocus=0).pack(side="right", padx=10)
 
         ttk.Separator(self.window, orient="horizontal").pack(fill="x", padx=10)
 
@@ -212,9 +215,11 @@ class ExamWindow:
         bottom_frame = ttk.Frame(self.window, padding=10)
         bottom_frame.pack(fill="x", side="bottom")
         ttk.Button(bottom_frame, text="◀ 上一题",
-                   command=self._prev).pack(side="left", padx=5)
+                   command=self._prev,
+                   takefocus=0).pack(side="left", padx=5)
         ttk.Button(bottom_frame, text="下一题 ▶",
-                   command=self._next).pack(side="left", padx=5)
+                   command=self._next,
+                   takefocus=0).pack(side="left", padx=5)
 
         self.jump_frame = ttk.Frame(bottom_frame)
         self.jump_frame.pack(side="right", padx=10)
@@ -225,7 +230,8 @@ class ExamWindow:
         self.jump_buttons = []
         for i in range(len(self.question_indices)):
             btn = ttk.Button(self.jump_frame, text=str(i + 1), width=3,
-                             command=lambda idx=i: self._jump_to(idx))
+                             command=lambda idx=i: self._jump_to(idx),
+                             takefocus=0)
             btn.pack(side="left", padx=1)
             self.jump_buttons.append(btn)
 
@@ -385,9 +391,9 @@ class ExamWindow:
         for i, real_idx in enumerate(self.question_indices):
             q = bank.questions[real_idx]
             user_ans = self.answers.get(i)
-            is_correct = q.check_answer(user_ans) if user_ans is not None else False
+            is_correct = q.check_answer(user_ans) if user_ans is not None else None
             records[real_idx] = is_correct
-            if is_correct:
+            if is_correct is True:
                 correct += 1
             else:
                 # 错题记入错题本
@@ -424,6 +430,7 @@ class ResultWindow:
         self.indices = indices
         self.records = records
         self.total = total
+        self.answered = answered
         self.correct = correct
 
         self.window = tk.Toplevel(parent)
@@ -449,7 +456,7 @@ class ResultWindow:
 
         info_text = (
             f"总题数：{self.total}\n"
-            f"已答题数：{sum(1 for v in self.records.values() if v is not None)}\n"
+            f"已答题数：{self.answered}\n"
             f"正确数：{self.correct}\n"
             f"正确率：{correct_rate:.1f}%\n"
         )

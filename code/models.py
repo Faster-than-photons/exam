@@ -367,249 +367,13 @@ class BankManager:
         base = os.path.splitext(json_path)[0]
         return f"{base}_history.json"
 
-    def _load_registry(self):
-        """加载题库注册表。"""
-        reg_path = self._registry_path()
-        if os.path.exists(reg_path):
-            try:
-                with open(reg_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except (json.JSONDecodeError, ValueError):
-                data = {}
-
-            saved_paths = data.get("paths", {})  # {name: json_path}
-            self._active_name = data.get("active", "")
-        else:
-            saved_paths = {}
-            self._active_name = ""
-
-        # 加载持久化的题库
-        for name, bp in saved_paths.items():
-            if os.path.exists(bp):
-                self._bank_paths[name] = bp
-                self._history_paths[name] = self._make_history_path(bp)
-                self._banks[name] = QuestionBank(bp, self._history_paths[name])
-
-        # 确保有活跃题库
-        if not self._banks:
-            self._create_default()
-
-    def _save_registry(self):
-        """保存题库注册表。"""
-        data = {
-            "paths": dict(self._bank_paths),
-            "active": self._active_name
-        }
-        with open(self._registry_path(), "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-    def _create_default(self):
-        """创建默认题库。"""
-        name = "默认题库"
-        bp = self._make_bank_path(name)
-        hp = self._make_history_path(bp)
-        self._banks[name] = QuestionBank(bp, hp)
-        self._bank_paths[name] = bp
-        self._history_paths[name] = hp
-        self._active_name = name
-        self._save_registry()
-
-    # ---------- 外部题库导入 ----------
-
-    def add_bank_from_file(self, filepath: str) -> bool:
-        """从外部 JSON 文件添加题库。返回是否成功。"""
-        if not os.path.exists(filepath):
+    def _is_managed_bank_path(self, path: str) -> bool:
+        """判断题库文件是否位于 BANKS_DIR 中。"""
+        if not path:
             return False
-        # 用文件名（不含扩展名）作为题库名
-        name = os.path.splitext(os.path.basename(filepath))[0]
-        # 重名处理
-        orig = name
-        n = 1
-        while name in self._banks:
-            name = f"{orig}_{n}"
-            n += 1
-        hp = self._make_history_path(filepath)
-        self._banks[name] = QuestionBank(filepath, hp)
-        self._bank_paths[name] = filepath
-        self._history_paths[name] = hp
-        self._save_registry()
-        return True
-
-    def scan_directory(self, dirpath: str) -> int:
-        """扫描目录中所有 .json 题库文件并添加。返回添加的数量。"""
-        if not os.path.isdir(dirpath):
-            return 0
-        added = 0
-        for fname in os.listdir(dirpath):
-            if fname.endswith(".json") and not fname.startswith("index"):
-                fpath = os.path.join(dirpath, fname)
-                # 快速验证是否是题库格式
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    if isinstance(data, list) and len(data) > 0 and "type" in data[0]:
-                        if self.add_bank_from_file(fpath):
-                            added += 1
-                except (json.JSONDecodeError, ValueError, KeyError):
-                    pass
-        return added
-
-    # ---------- 题库操作 ----------
-
-    def create_bank(self, name: str) -> bool:
-        """在 BANKS_DIR 下创建新题库。"""
-        name = name.strip()
-        if not name or name in self._banks:
-            return False
-        bp = self._make_bank_path(name)
-        hp = self._make_history_path(bp)
-        self._banks[name] = QuestionBank(bp, hp)
-        self._bank_paths[name] = bp
-        self._history_paths[name] = hp
-        self._save_registry()
-        return True
-
-    def switch_bank(self, name: str):
-        if name in self._banks:
-            self._active_bank.save()
-            self._active_name = name
-            self._save_registry()
-
-    def delete_bank(self, name: str) -> bool:
-        if name not in self._banks or len(self._banks) <= 1:
-            return False
-        # 仅删除 BANKS_DIR 内的文件（外部文件保留）
-        bp = self._bank_paths.get(name, "")
-        if bp.startswith(os.path.abspath(BANKS_DIR)):
-            hp = self._history_paths.get(name, "")
-            for p in (bp, hp):
-                if p and os.path.exists(p):
-                    os.remove(p)
-            # 也删除错题本
-            wp = os.path.splitext(bp)[0] + "_wrong.json"
-            if os.path.exists(wp):
-                os.remove(wp)
-        del self._banks[name]
-        self._bank_paths.pop(name, None)
-        self._history_paths.pop(name, None)
-        if self._active_name == name:
-            self._active_name = next(iter(self._banks.keys()))
-        self._save_registry()
-        return True
-
-    def rename_bank(self, old_name: str, new_name: str) -> bool:
-        new_name = new_name.strip()
-        if not new_name or new_name in self._banks or old_name not in self._banks:
-            return False
-        bank_obj = self._banks.pop(old_name)
-        old_bp = self._bank_paths.pop(old_name)
-        old_hp = self._history_paths.pop(old_name)
-
-        # 仅对 BANKS_DIR 内的文件重命名物理文件
-        if old_bp.startswith(os.path.abspath(BANKS_DIR)):
-            new_bp = self._make_bank_path(new_name)
-            new_hp = self._make_history_path(new_bp)
-            bank_obj.filepath = new_bp
-            bank_obj.history_path = new_hp
-            if os.path.exists(old_bp):
-                os.rename(old_bp, new_bp)
-            if os.path.exists(old_hp):
-                os.rename(old_hp, new_hp)
-            # 错题本也改名
-            old_wp = os.path.splitext(old_bp)[0] + "_wrong.json"
-            new_wp = os.path.splitext(new_bp)[0] + "_wrong.json"
-            if os.path.exists(old_wp):
-                os.rename(old_wp, new_wp)
-            self._bank_paths[new_name] = new_bp
-            self._history_paths[new_name] = new_hp
-        else:
-            self._bank_paths[new_name] = old_bp
-            self._history_paths[new_name] = old_hp
-
-        self._banks[new_name] = bank_obj
-        if self._active_name == old_name:
-            self._active_name = new_name
-        self._save_registry()
-        return True
-
-    def list_banks(self) -> list[str]:
-        return list(self._banks.keys())
-
-    def bank_file_path(self, name: str) -> str:
-        return self._bank_paths.get(name, "")
-
-    # ---------- 代理属性 ----------
-
-    @property
-    def _active_bank(self) -> QuestionBank:
-        return self._banks[self._active_name]
-
-    @property
-    def questions(self) -> list:
-        return self._active_bank.questions
-
-    @questions.setter
-    def questions(self, value):
-        self._active_bank.questions = value
-
-    @property
-    def history(self) -> list:
-        return self._active_bank.history
-
-    @property
-    def active_name(self) -> str:
-        return self._active_name
-
-    def save(self):
-        self._active_bank.save()
-
-    def get_statistics(self) -> dict:
-        return self._active_bank.get_statistics()
-
-    def add_history(self, record: dict):
-        self._active_bank.add_history(record)
-
-    def add_wrong(self, question_index: int):
-        self._active_bank.add_wrong(question_index)
-
-    def get_wrong_indices(self) -> list[int]:
-        return self._active_bank.get_wrong_indices()
-
-    def get_wrong_count(self, question_index: int) -> int:
-        return self._active_bank.get_wrong_count(question_index)
-
-
-# ============================================================================
-# 全局配置
-# ============================================================================
-
-
-
-
-class BankManager:
-    """多题库管理器 —— 管理多个题库，支持从任意目录加载题库文件。"""
-
-    def __init__(self):
-        os.makedirs(BANKS_DIR, exist_ok=True)
-        self._banks: dict[str, QuestionBank] = {}       # name → QuestionBank
-        self._bank_paths: dict[str, str] = {}            # name → json file path
-        self._history_paths: dict[str, str] = {}          # name → history file path
-        self._active_name: str = ""
-        self._load_registry()
-
-    # ---------- 注册表 ----------
-
-    def _registry_path(self) -> str:
-        return os.path.join(BANKS_DIR, "index.json")
-
-    def _make_bank_path(self, name: str) -> str:
-        """为新题库生成默认路径（在 BANKS_DIR 下）。"""
-        safe = name.replace("/", "_").replace("\\", "_")
-        return os.path.join(BANKS_DIR, f"{safe}.json")
-
-    def _make_history_path(self, json_path: str) -> str:
-        base = os.path.splitext(json_path)[0]
-        return f"{base}_history.json"
+        banks_root = os.path.normcase(os.path.abspath(BANKS_DIR))
+        bank_path = os.path.normcase(os.path.abspath(path))
+        return bank_path.startswith(banks_root + os.sep) or bank_path == banks_root
 
     def _load_registry(self):
         """加载题库注册表。"""
@@ -724,7 +488,7 @@ class BankManager:
             return False
         # 仅删除 BANKS_DIR 内的文件（外部文件保留）
         bp = self._bank_paths.get(name, "")
-        if bp.startswith(os.path.abspath(BANKS_DIR)):
+        if self._is_managed_bank_path(bp):
             hp = self._history_paths.get(name, "")
             for p in (bp, hp):
                 if p and os.path.exists(p):
@@ -750,7 +514,7 @@ class BankManager:
         old_hp = self._history_paths.pop(old_name)
 
         # 仅对 BANKS_DIR 内的文件重命名物理文件
-        if old_bp.startswith(os.path.abspath(BANKS_DIR)):
+        if self._is_managed_bank_path(old_bp):
             new_bp = self._make_bank_path(new_name)
             new_hp = self._make_history_path(new_bp)
             bank_obj.filepath = new_bp
@@ -862,16 +626,6 @@ class AppConfig:
         self.data[key] = value
         self.save()
 
-
-config = AppConfig()
-
-
-# ============================================================================
-
-
-
-
-BANKS_DIR = 'banks'
 
 config = AppConfig()
 bank = BankManager()

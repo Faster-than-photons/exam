@@ -88,12 +88,15 @@ class PracticeWindow:
         self._mode_label.pack(side="left", padx=10)
 
         ttk.Button(top_frame, text="切换随机/顺序",
-                   command=self._toggle_mode).pack(side="right", padx=5)
+                   command=self._toggle_mode,
+                   takefocus=0).pack(side="right", padx=5)
 
         ttk.Button(top_frame, text="显示/隐藏答案",
-                   command=self._toggle_answer).pack(side="right", padx=5)
+                   command=self._toggle_answer,
+                   takefocus=0).pack(side="right", padx=5)
         ttk.Button(top_frame, text="返回主菜单",
-                   command=self._on_close).pack(side="right", padx=5)
+                   command=self._on_close,
+                   takefocus=0).pack(side="right", padx=5)
 
         ttk.Separator(self.window, orient="horizontal").pack(fill="x", padx=10)
 
@@ -136,11 +139,14 @@ class PracticeWindow:
         bottom_frame.pack(fill="x", side="bottom")
 
         ttk.Button(bottom_frame, text="◀ 上一题",
-                   command=self._prev).pack(side="left", padx=5)
+                   command=self._prev,
+                   takefocus=0).pack(side="left", padx=5)
         ttk.Button(bottom_frame, text="下一题 ▶",
-                   command=self._next).pack(side="left", padx=5)
+                   command=self._next,
+                   takefocus=0).pack(side="left", padx=5)
         ttk.Button(bottom_frame, text="提交答案",
-                   command=self._submit).pack(side="right", padx=5)
+                   command=self._submit,
+                   takefocus=0).pack(side="right", padx=5)
 
     def _bind_keys(self):
         """绑定键盘快捷键。"""
@@ -189,28 +195,31 @@ class PracticeWindow:
         self.question_label.config(text=q.question)
 
         # 渲染选项/填空（题目字号-2 = 22pt，选择框随 clam 主题自动缩放）
+        first_option = None  # 记住首选项用于焦点复位
         if isinstance(q, SingleChoiceQuestion):
             self._var = tk.StringVar(value="")
-            for opt in q.options:
+            for i, opt in enumerate(q.options):
                 key = opt.split(".")[0].strip().upper()
                 rb = ttk.Radiobutton(self.answer_frame, text=opt,
                                      variable=self._var, value=key,
-                                     style="Option.TRadiobutton",
-                                     takefocus=0)
+                                     style="Option.TRadiobutton")
                 rb.pack(anchor="w", pady=4)
+                if i == 0:
+                    first_option = rb
                 # 空格键提交，阻断默认选中/取消行为
                 rb.bind("<space>", lambda e: (self._submit(), "break")[1])
         elif isinstance(q, MultiChoiceQuestion):
             self._check_vars = {}
-            for opt in q.options:
+            for i, opt in enumerate(q.options):
                 key = opt.split(".")[0].strip().upper()
                 var = tk.BooleanVar(value=False)
                 self._check_vars[key] = var
                 cb = ttk.Checkbutton(self.answer_frame, text=opt,
                                      variable=var,
-                                     style="Option.TCheckbutton",
-                                     takefocus=0)
+                                     style="Option.TCheckbutton")
                 cb.pack(anchor="w", pady=4)
+                if i == 0:
+                    first_option = cb
                 # 空格键提交，阻断默认勾选/取消行为
                 cb.bind("<space>", lambda e: (self._submit(), "break")[1])
         elif isinstance(q, FillInBlankQuestion):
@@ -220,9 +229,16 @@ class PracticeWindow:
                                 font=("Microsoft YaHei", 11))
                 lbl.pack(anchor="w", pady=(5, 0))
                 var = tk.StringVar()
-                ttk.Entry(self.answer_frame, textvariable=var, width=40,
-                          font=("Microsoft YaHei", 12)).pack(anchor="w", pady=(0, 5))
+                entry = ttk.Entry(self.answer_frame, textvariable=var, width=40,
+                                  font=("Microsoft YaHei", 12))
+                entry.pack(anchor="w", pady=(0, 5))
                 self._entry_vars.append(var)
+                if i == 0:
+                    first_option = entry
+
+        # 焦点复位到首选项，避免按钮持有焦点导致空格键误触发按钮功能
+        if first_option is not None:
+            first_option.focus_set()
 
         # 正确答案
         if self.show_answer_flag.get():
@@ -321,11 +337,19 @@ class PracticeWindow:
         total = len(self.shuffled)
         answered = len(self.records)
         correct = sum(1 for v in self.records.values() if v)
+        result_indices = [self._real_question_index_at(i) for i in range(total)]
         # 完成时清除进度
         if os.path.exists(self._progress_file):
             os.remove(self._progress_file)
         ResultWindow(self.window, "练习成绩", total, answered, correct,
-                     self.questions, self.shuffled, self.records)
+                     bank.questions, result_indices, self.records)
+
+    def _real_question_index_at(self, order_idx: int) -> int:
+        """获取指定展示顺序下题目在题库中的真实索引。"""
+        shuffled_idx = self.shuffled[order_idx]
+        if self.indices_map is not None:
+            return self.indices_map[shuffled_idx]
+        return shuffled_idx
 
     # ---------- 进度持久化 ----------
 
