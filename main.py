@@ -419,7 +419,7 @@ class MainApp:
         self._update_layout()
 
     def _update_layout(self):
-        """根据当前窗口尺寸选择紧凑或大型布局。"""
+        """根据当前窗口尺寸选择并应用布局。"""
         w = self.root.winfo_width()
         h = self.root.winfo_height()
         if w < 50 or h < 50:
@@ -432,46 +432,68 @@ class MainApp:
         threshold = screen_area / 3
 
         new_mode = "large" if window_area >= threshold else "compact"
-        if new_mode == self._layout_mode:
-            return  # 无变化
-        self._layout_mode = new_mode
 
-        if new_mode == "compact":
-            self._apply_compact()
-        else:
+        if new_mode != self._layout_mode:
+            # 模式切换
+            self._layout_mode = new_mode
+            if new_mode == "compact":
+                self._apply_compact()
+            else:
+                self._apply_large()
+        elif new_mode == "large":
+            # 大型模式内连续缩放：实时更新间距
             self._apply_large()
 
     def _apply_compact(self):
-        """紧凑布局：小字体、窄间距、按钮固定宽度居中。"""
+        """紧凑布局：小字体、间距=半按钮高、上下边距=一按钮高、无左右限制。"""
+        btn_font = ("Microsoft YaHei", 9)
+        btn_h = 24  # 紧凑模式按钮近似高度(px)
+        pady_gap = max(1, btn_h // 4)
+        margin_v = btn_h
+
         self._title_frame.configure(padding=(12, 8, 12, 2))
         self._title_label.configure(font=("Microsoft YaHei", 14, "bold"))
         self._stats_label.configure(font=("Microsoft YaHei", 8))
 
-        # 按钮框架：不填充，保持内容宽度居中
-        self._btn_frame.pack_configure(fill="none", expand=True, padx=0)
+        self._btn_frame.pack_configure(fill="none", expand=True, padx=0, pady=margin_v)
 
-        btn_font = ("Microsoft YaHei", 9)
         for btn in self._buttons:
             btn.configure(width=22)
-            btn.pack_configure(pady=2, fill="none")
+            btn.pack_configure(pady=pady_gap, fill="none")
 
         self._apply_button_font(btn_font)
 
     def _apply_large(self):
-        """大型布局：大字体、宽间距、按钮等比例撑满窗口。"""
-        self._title_frame.configure(padding=(25, 15, 25, 8))
+        """大型布局：间距=半按钮高（动态计算）、左右边距=按钮宽/10。"""
+        win_w = self.root.winfo_width()
+        win_h = self.root.winfo_height()
+
+        # 可用垂直空间 ≈ 窗口高度 - 标题区(约60px) - 分隔线(约10px)
+        avail_h = max(200, win_h - 70)
+
+        # 7 按钮 + 6 间隙，间隙 = btn_h/2
+        # avail_h = 7*btn_h + 6*(btn_h/2) = 10*btn_h → btn_h = avail_h / 10
+        n_btns = len(self._buttons)
+        n_gaps = n_btns - 1
+        btn_h = avail_h / (n_btns + n_gaps * 0.5)
+        gap = btn_h / 2
+        pady_gap = max(1, int(gap / 2))  # pack pady 上下各一半
+        margin_v = max(4, int(btn_h))     # 上下边距 = 一个按钮高
+
+        # 左右边距 = 按钮宽度 / 10 → padx = win_w / 12
+        padx_h = max(10, win_w // 12)
+
+        btn_font = ("Microsoft YaHei", 11)
+        self._title_frame.configure(padding=(padx_h, 15, padx_h, 8))
         self._title_label.configure(font=("Microsoft YaHei", 20, "bold"))
         self._stats_label.configure(font=("Microsoft YaHei", 10))
 
-        # 按钮框架：双向填满，跟随窗口宽高
-        self._btn_frame.pack_configure(fill="both", expand=True, padx=30, pady=10)
+        self._btn_frame.pack_configure(fill="both", expand=True,
+                                       padx=padx_h, pady=margin_v)
 
-        btn_font = ("Microsoft YaHei", 11)
         for btn in self._buttons:
-            btn.configure(width=0)  # 0 = 自动宽度（由 fill 决定）
-            btn.pack_configure(pady=4, fill="both", expand=True)
-
-        self._apply_button_font(btn_font)
+            btn.configure(width=0)
+            btn.pack_configure(pady=pady_gap, fill="both", expand=True)
 
         self._apply_button_font(btn_font)
 
@@ -1464,7 +1486,7 @@ class ImportWindow:
         self.window = tk.Toplevel(parent)
         self.window.title("导入题库")
         self.window.resizable(False, False)
-        center_window(self.window, 550, 400)
+        center_window(self.window, 580, 440)
         self.window.focus_force()
 
         self._build_ui()
@@ -1473,8 +1495,13 @@ class ImportWindow:
         frame = ttk.Frame(self.window, padding=15)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="📥 导入题库",
-                  font=("Microsoft YaHei", 14, "bold")).pack(pady=(0, 10))
+        # 标题行
+        header = ttk.Frame(frame)
+        header.pack(fill="x", pady=(0, 10))
+        ttk.Label(header, text="📥 导入题库",
+                  font=("Microsoft YaHei", 14, "bold")).pack(side="left")
+        ttk.Button(header, text="📋 查看格式说明",
+                   command=self._show_format_help).pack(side="right")
 
         ttk.Button(frame, text="从 TXT 文件导入...",
                    command=self._from_file).pack(fill="x", pady=5)
@@ -1488,7 +1515,7 @@ class ImportWindow:
         self.text_area.pack(fill="both", expand=True, pady=(0, 10))
 
         ttk.Label(frame,
-                  text="格式示例见使用说明，题与题之间空行分隔。",
+                  text="题与题之间用空行分隔，点击右上角「查看格式说明」了解详细格式。",
                   font=("Microsoft YaHei", 8),
                   foreground="gray").pack(anchor="w")
 
@@ -1498,6 +1525,101 @@ class ImportWindow:
                    command=self._import_text).pack(side="right", padx=5)
         ttk.Button(btn_frame, text="关闭",
                    command=self.window.destroy).pack(side="right", padx=5)
+
+    def _show_format_help(self):
+        """弹出 TXT 题库格式说明窗口。"""
+        help_win = tk.Toplevel(self.window)
+        help_win.title("TXT 题库格式说明")
+        help_win.resizable(False, False)
+        center_window(help_win, 600, 480)
+        help_win.focus_force()
+
+        frame = ttk.Frame(help_win, padding=15)
+        frame.pack(fill="both", expand=True)
+
+        ttk.Label(frame, text="📋 TXT 题库格式说明",
+                  font=("Microsoft YaHei", 13, "bold")).pack(pady=(0, 10))
+
+        text = scrolledtext.ScrolledText(frame, width=68, height=22,
+                                         font=("Consolas", 10))
+        text.pack(fill="both", expand=True)
+
+        # 格式说明内容
+        help_content = """\
+══════════════════════════════════════════════════
+  TXT 题库文件格式规范
+══════════════════════════════════════════════════
+
+【基本规则】
+  • 每道题占多行，题与题之间用空行分隔
+  • 第一行格式: 序号.(题型)题目内容
+  • 题型: 单选题 / 多选题 / 填空题
+
+──────────────────────────────────────────────
+  1. 单选题
+──────────────────────────────────────────────
+  1.(单选题)中国的首都是？
+  A. 上海
+  B. 北京
+  C. 广州
+  D. 深圳
+  answer: B
+
+  说明:
+  - 选项以 A. B. C. D. 开头（支持任意数量选项）
+  - answer: 后填正确选项字母
+
+──────────────────────────────────────────────
+  2. 多选题
+──────────────────────────────────────────────
+  2.(多选题)以下哪些是编程语言？
+  A. Python
+  B. Java
+  C. 中文
+  D. C++
+  answer: A,B,D
+
+  说明:
+  - 多个答案用逗号分隔（如 A,B,D）
+  - 所有选项必须全选对才得分
+
+──────────────────────────────────────────────
+  3. 填空题
+──────────────────────────────────────────────
+  3.(填空题)世界上最高的山峰是 {0}，海拔 {1} 米。
+  blank0: 珠穆朗玛峰,珠峰
+  blank1: 8848.86,8848
+
+  说明:
+  - 题目中用 {0}、{1}... 标记填空位置
+  - blank0: 对应 {0} 的答案，多个可接受答案用逗号分隔
+  - 每个空的答案匹配任一即可得分
+
+══════════════════════════════════════════════════
+  完整示例（3 道题，注意题间空行）
+══════════════════════════════════════════════════
+  1.(单选题)Python 的作者是？
+  A. Guido van Rossum
+  B. Dennis Ritchie
+  C. James Gosling
+  D. Bjarne Stroustrup
+  answer: A
+
+  2.(多选题)以下哪些是Python标准库？
+  A. os
+  B. json
+  C. numpy
+  D. random
+  answer: A,B,D
+
+  3.(填空题)Python 中表示空值的常量是 {0}。
+  blank0: None,none
+"""
+        text.insert("1.0", help_content)
+        text.configure(state="disabled")  # 只读
+
+        ttk.Button(frame, text="关闭",
+                   command=help_win.destroy).pack(pady=(10, 0))
 
     def _from_file(self):
         filepath = filedialog.askopenfilename(
@@ -1522,7 +1644,12 @@ class ImportWindow:
     def _do_import(self, text: str):
         parsed = QuestionBank.parse_txt(text)
         if not parsed:
-            messagebox.showwarning("导入失败", "未能解析到有效题目，请检查格式。")
+            result = messagebox.askyesno(
+                "导入失败",
+                "未能解析到有效题目，请检查格式是否正确。\n\n"
+                "是否查看 TXT 题库格式说明？")
+            if result:
+                self._show_format_help()
             return
         bank.questions.extend(parsed)
         bank.save()
