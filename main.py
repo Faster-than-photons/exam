@@ -353,19 +353,20 @@ class MainApp:
         self.root = tk.Tk()
         self.root.title("刷题与考试系统")
         self.root.resizable(True, True)
-        center_window(self.root, 520, 480)
-        self.root.minsize(420, 400)
+        center_window(self.root, 520, 460)
+        self.root.minsize(400, 380)
         self._layout_mode = None  # 当前布局模式: 'compact' / 'large'
 
         self._build_ui()
-        self._update_layout()  # 初始布局
+        self.root.update_idletasks()  # 确保初始尺寸就绪
+        self._update_layout()
         self.root.bind("<Configure>", self._on_resize)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ---------- 界面构建 ----------
 
     def _build_ui(self):
-        """构建主界面骨架（不含尺寸相关配置，尺寸由 _update_layout 动态调整）。"""
+        """构建主界面骨架。"""
         # 标题区
         self._title_frame = ttk.Frame(self.root)
         self._title_frame.pack(fill="x")
@@ -385,16 +386,13 @@ class MainApp:
         self._sep = ttk.Separator(self.root, orient="horizontal")
         self._sep.pack(fill="x", padx=15, pady=(8, 0))
 
-        # 按钮容器（占据剩余空间，居中按钮组）
+        # 按钮外层容器（占满剩余空间）
         self._outer_frame = ttk.Frame(self.root)
         self._outer_frame.pack(fill="both", expand=True)
 
-        # 按钮居中锚定框架
-        self._btn_anchor = ttk.Frame(self._outer_frame)
-        self._btn_anchor.place(relx=0.5, rely=0.5, anchor="center")
-
-        self._btn_frame = ttk.Frame(self._btn_anchor)
-        self._btn_frame.pack()
+        # 按钮内层框架（默认居中，large 时 fill="x"）
+        self._btn_frame = ttk.Frame(self._outer_frame)
+        self._btn_frame.pack(expand=True)
 
         # 创建所有按钮并保存引用
         self._buttons: list[ttk.Button] = []
@@ -416,8 +414,7 @@ class MainApp:
 
     def _on_resize(self, event=None):
         """窗口大小变化时检查并切换布局模式。"""
-        # 仅处理根窗口事件
-        if event and event.widget != self.root:
+        if event and event.widget is not self.root:
             return
         self._update_layout()
 
@@ -426,7 +423,7 @@ class MainApp:
         w = self.root.winfo_width()
         h = self.root.winfo_height()
         if w < 50 or h < 50:
-            return  # 窗口尚未就绪
+            return
 
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
@@ -436,7 +433,7 @@ class MainApp:
 
         new_mode = "large" if window_area >= threshold else "compact"
         if new_mode == self._layout_mode:
-            return  # 无需切换
+            return  # 无变化
         self._layout_mode = new_mode
 
         if new_mode == "compact":
@@ -445,53 +442,43 @@ class MainApp:
             self._apply_large()
 
     def _apply_compact(self):
-        """紧凑布局：小字体、窄间距、固定按钮宽度。"""
-        # 标题区
+        """紧凑布局：小字体、窄间距、按钮固定宽度居中。"""
         self._title_frame.configure(padding=(12, 8, 12, 2))
         self._title_label.configure(font=("Microsoft YaHei", 14, "bold"))
         self._stats_label.configure(font=("Microsoft YaHei", 8))
 
-        # 按钮
-        btn_width = 22
-        btn_pady = 2
+        # 按钮框架：不填充，保持内容宽度居中
+        self._btn_frame.pack_configure(fill="none", expand=True, padx=0)
+
         btn_font = ("Microsoft YaHei", 9)
         for btn in self._buttons:
-            btn.configure(width=btn_width)
-            btn.pack_configure(pady=btn_pady)
-            # ttk 按钮无法直接设 font，通过 Style
+            btn.configure(width=22)
+            btn.pack_configure(pady=2, fill="none")
+
         self._apply_button_font(btn_font)
 
-        # 框架内边距
-        self._outer_frame.configure(padding=0)
-        self._btn_frame.configure(padding=0)
-
     def _apply_large(self):
-        """大型布局：大字体、宽间距、按钮充满宽度。"""
-        # 标题区
+        """大型布局：大字体、宽间距、按钮撑满窗口宽度。"""
         self._title_frame.configure(padding=(25, 15, 25, 8))
         self._title_label.configure(font=("Microsoft YaHei", 20, "bold"))
         self._stats_label.configure(font=("Microsoft YaHei", 10))
 
-        # 按钮
+        # 按钮框架：横向填满，跟随窗口宽度
+        self._btn_frame.pack_configure(fill="x", expand=True, padx=30)
+
         btn_font = ("Microsoft YaHei", 11)
-        btn_pady = 5
-        # 解除固定宽度，让按钮由 pack(fill="x") 自适应
         for btn in self._buttons:
-            btn.configure(width=0)  # 0 = 自动宽度
-            btn.pack_configure(pady=btn_pady, fill="x")
+            btn.configure(width=0)  # 0 = 自动宽度（由 fill 决定）
+            btn.pack_configure(pady=5, fill="x")
+
         self._apply_button_font(btn_font)
 
-        # 框架内边距
-        self._outer_frame.configure(padding=10)
-        self._btn_frame.configure(padding=0)
-
     def _apply_button_font(self, font):
-        """通过 ttk.Style 设置按钮字体（需创建独立 style 避免冲突）。"""
+        """通过 ttk.Style 设置按钮字体。"""
         style = ttk.Style()
-        style_name = "Main.TButton"
-        style.configure(style_name, font=font)
+        style.configure("Main.TButton", font=font)
         for btn in self._buttons:
-            btn.configure(style=style_name)
+            btn.configure(style="Main.TButton")
 
     # ---------- 各功能入口 ----------
 
