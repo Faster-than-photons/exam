@@ -122,9 +122,9 @@ class BankHubPanel:
         self._qtree.heading("#", text="序号")
         self._qtree.heading("type", text="题型")
         self._qtree.heading("preview", text="题目预览")
-        self._qtree.column("#", width=40, anchor="center")
-        self._qtree.column("type", width=50, anchor="center")
-        self._qtree.column("preview", width=350)
+        self._qtree.column("#", width=40, anchor="center", stretch=False)
+        self._qtree.column("type", width=50, anchor="center", stretch=False)
+        self._qtree.column("preview", width=350, stretch=True)
         qscroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self._qtree.yview)
         self._qtree.configure(yscrollcommand=qscroll.set)
         self._qtree.pack(side="left", fill="both", expand=True)
@@ -132,7 +132,7 @@ class BankHubPanel:
         self._qtree.bind("<Double-1>", lambda e: self._edit_question())
 
         # 右栏：题库列表
-        right = ttk.Frame(panes, width=200)
+        right = ttk.Frame(panes, width=260)
         right.pack(side="right", fill="y", padx=(5, 0))
         right.pack_propagate(False)
 
@@ -145,13 +145,11 @@ class BankHubPanel:
 
         btn_col = ttk.Frame(right)
         btn_col.pack(fill="x", pady=3)
-        ttk.Button(btn_col, text="➕ 新建", command=self._create_bank, width=8).pack(side="left", padx=1)
-        ttk.Button(btn_col, text="📋 复制", command=self._copy_bank, width=8).pack(side="left", padx=1)
-        ttk.Button(btn_col, text="💾 导出JSON", command=self._export_bank, width=10).pack(side="left", padx=1)
-        btn_col2 = ttk.Frame(right)
-        btn_col2.pack(fill="x", pady=2)
-        ttk.Button(btn_col2, text="📄 添加文件", command=self._add_file, width=10).pack(side="left", padx=1)
-        ttk.Button(btn_col2, text="📂 扫描文件夹", command=self._scan_dir, width=12).pack(side="left", padx=1)
+        ttk.Button(btn_col, text="➕ 新建", command=self._create_bank).pack(fill="x", pady=1)
+        ttk.Button(btn_col, text="📋 复制", command=self._copy_bank).pack(fill="x", pady=1)
+        ttk.Button(btn_col, text="💾 导出JSON", command=self._export_bank).pack(fill="x", pady=1)
+        ttk.Button(btn_col, text="📄 添加文件", command=self._add_file).pack(fill="x", pady=1)
+        ttk.Button(btn_col, text="📂 扫描文件夹", command=self._scan_dir).pack(fill="x", pady=1)
 
         self._refresh_all()
 
@@ -521,9 +519,9 @@ class WrongBookPanel:
         self._tree.heading("question", text="题目")
         self._tree.heading("type", text="题型")
         self._tree.heading("wrong_count", text="错误次数")
-        self._tree.column("question", width=400)
-        self._tree.column("type", width=60, anchor="center")
-        self._tree.column("wrong_count", width=70, anchor="center")
+        self._tree.column("question", width=400, stretch=True)
+        self._tree.column("type", width=60, anchor="center", stretch=False)
+        self._tree.column("wrong_count", width=70, anchor="center", stretch=False)
 
         scrollbar = ttk.Scrollbar(tree_frame, orient="vertical",
                                    command=self._tree.yview)
