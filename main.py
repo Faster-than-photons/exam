@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 ===============================================================================
@@ -615,6 +615,50 @@ class BankManager:
 
 
 # ============================================================================
+# 全局配置
+# ============================================================================
+
+class AppConfig:
+    """应用全局配置，存储用户偏好设置。"""
+
+    CONFIG_PATH = "config.json"
+    DEFAULTS = {
+        "practice_mode": "random",        # random / sequential
+        "practice_show_answer": False,
+        "exam_default_duration": 30,       # 分钟
+    }
+
+    def __init__(self):
+        self.data = dict(self.DEFAULTS)
+        self.load()
+
+    def load(self):
+        if os.path.exists(self.CONFIG_PATH):
+            try:
+                with open(self.CONFIG_PATH, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                for k in self.DEFAULTS:
+                    if k in loaded:
+                        self.data[k] = loaded[k]
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+    def save(self):
+        with open(self.CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=2)
+
+    def get(self, key: str):
+        return self.data.get(key, self.DEFAULTS.get(key))
+
+    def set(self, key: str, value):
+        self.data[key] = value
+        self.save()
+
+
+config = AppConfig()
+
+
+# ============================================================================
 # 全局题库实例
 # ============================================================================
 
@@ -639,183 +683,159 @@ def center_window(window, width, height):
 # ============================================================================
 
 class MainApp:
-    """程序主窗口 —— 显示功能菜单，支持紧凑/大型双布局自适应。"""
+    """程序主窗口 —— 左侧竖向菜单栏 + 右侧内容区，支持紧凑/大型双布局。"""
 
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("刷题与考试系统")
         self.root.resizable(True, True)
-        center_window(self.root, 520, 460)
-        self.root.minsize(400, 380)
-        self._layout_mode = None  # 当前布局模式: 'compact' / 'large'
+        center_window(self.root, 900, 600)
+        self.root.minsize(600, 450)
+        self._layout_mode = None
+        self._current_panel = None
+        self._sidebar_collapsed = False  # 紧凑模式：仅图标
 
         self._build_ui()
-        self.root.update_idletasks()  # 确保初始尺寸就绪
+        self.root.update_idletasks()
         self._update_layout()
         self.root.bind("<Configure>", self._on_resize)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        # 默认显示刷题面板
+        self._show_default()
 
     # ---------- 界面构建 ----------
 
     def _build_ui(self):
-        """构建主界面骨架。"""
-        # 标题区
-        self._title_frame = ttk.Frame(self.root)
-        self._title_frame.pack(fill="x")
+        """构建侧边栏 + 内容区布局。"""
+        # === 左侧侧边栏 ===
+        self._sidebar = tk.Frame(self.root, bg="#2c3e50", width=160)
+        self._sidebar.pack(side="left", fill="y")
+        self._sidebar.pack_propagate(False)
 
-        self._title_label = ttk.Label(self._title_frame, text="📚 刷题与考试系统",
-                                      font=("Microsoft YaHei", 18, "bold"))
-        self._title_label.pack()
-
-        # 题库信息行
-        info_frame = ttk.Frame(self._title_frame)
-        info_frame.pack(fill="x", pady=(5, 0))
-        self._bank_label = ttk.Label(info_frame, text="", font=("Microsoft YaHei", 9))
-        self._bank_label.pack(side="left")
-        self._stats_label = ttk.Label(info_frame, text="", font=("Microsoft YaHei", 9))
-        self._stats_label.pack(side="left", padx=(15, 0))
-        ttk.Button(info_frame, text="🔄 切换题库", command=self._open_bank_switch,
-                   width=12).pack(side="right")
-        self._refresh_bank_info()
+        # 统计图标（顶部）
+        stats_btn = tk.Button(self._sidebar, text="📊", font=("Microsoft YaHei", 16),
+                              bg="#2c3e50", fg="white", bd=0, activebackground="#34495e",
+                              command=self._open_statistics, cursor="hand2")
+        stats_btn.pack(pady=(10, 5))
 
         # 分隔线
-        self._sep = ttk.Separator(self.root, orient="horizontal")
-        self._sep.pack(fill="x", padx=15, pady=(8, 0))
+        sep1 = tk.Frame(self._sidebar, height=1, bg="#4a6785")
+        sep1.pack(fill="x", padx=15, pady=5)
 
-        # 按钮外层容器（占满剩余空间）
-        self._outer_frame = ttk.Frame(self.root)
-        self._outer_frame.pack(fill="both", expand=True)
-
-        # 按钮内层框架（默认居中，large 时 fill="x"）
-        self._btn_frame = ttk.Frame(self._outer_frame)
-        self._btn_frame.pack(expand=True)
-
-        # 创建所有按钮并保存引用
-        self._buttons: list[ttk.Button] = []
-        btn_defs = [
-            ("📝 刷题模式", self._open_practice),
-            ("⏱ 考试模式", self._open_exam_setup),
-            ("📋 题库管理", self._open_bank_management),
-            ("📥 导入题库", self._open_import),
-            ("📤 导出题库", self._open_export),
-            ("📊 查看统计", self._open_statistics),
-            ("🚪 退出程序", self._on_close),
+        # 主功能按钮（大字）
+        self._sidebar_btns = []
+        menu_items = [
+            ("📝\n刷题模式", self._open_practice),
+            ("⏱\n考试模式", self._open_exam_setup),
+            ("📕\n错题本", self._open_wrong_book),
+            ("📋\n题库管理", self._open_bank_hub),
         ]
-        for text, cmd in btn_defs:
-            btn = ttk.Button(self._btn_frame, text=text, command=cmd)
-            btn.pack(pady=2)
-            self._buttons.append(btn)
+        for text, cmd in menu_items:
+            btn = tk.Button(self._sidebar, text=text, font=("Microsoft YaHei", 11, "bold"),
+                            bg="#2c3e50", fg="white", bd=0, activebackground="#34495e",
+                            compound="top", padx=10, pady=10,
+                            command=cmd, cursor="hand2")
+            btn.pack(fill="x", padx=8, pady=3)
+            self._sidebar_btns.append(btn)
+
+        # 弹性空间
+        spacer = tk.Frame(self._sidebar, bg="#2c3e50")
+        spacer.pack(fill="both", expand=True)
+
+        # 退出图标（底部）
+        exit_btn = tk.Button(self._sidebar, text="🚪", font=("Microsoft YaHei", 16),
+                             bg="#2c3e50", fg="#e74c3c", bd=0, activebackground="#34495e",
+                             command=self._on_close, cursor="hand2")
+        exit_btn.pack(pady=(5, 15))
+
+        # === 右侧内容区 ===
+        self._content_area = ttk.Frame(self.root)
+        self._content_area.pack(side="left", fill="both", expand=True)
+
+        # 题库信息条（顶部）
+        self._info_bar = ttk.Frame(self._content_area)
+        self._info_bar.pack(fill="x")
+        self._bank_label = ttk.Label(self._info_bar, text="", font=("Microsoft YaHei", 9),
+                                     padding=(10, 5))
+        self._bank_label.pack(side="left")
+        self._stats_label = ttk.Label(self._info_bar, text="", font=("Microsoft YaHei", 9),
+                                      foreground="gray")
+        self._stats_label.pack(side="left", padx=(5, 0))
+        ttk.Separator(self._content_area, orient="horizontal").pack(fill="x")
+        self._refresh_bank_info()
+
+        # 键盘快捷键
+        self.root.bind("<Control-Key-1>", lambda e: self._open_practice())
+        self.root.bind("<Control-Key-2>", lambda e: self._open_exam_setup())
+        self.root.bind("<Control-Key-3>", lambda e: self._open_wrong_book())
+        self.root.bind("<Control-Key-4>", lambda e: self._open_bank_hub())
+        self.root.bind("<Control-Key-5>", lambda e: self._open_statistics())
+        self.root.bind("<Control-Key-6>", lambda e: self._on_close())
+        self.root.bind("<Control-Key-w>", lambda e: self._show_default())
+
+    # ---------- 面板切换 ----------
+
+    def _show_panel(self, panel_frame):
+        if self._current_panel:
+            self._current_panel.pack_forget()
+        panel_frame.pack(fill="both", expand=True)
+        self._current_panel = panel_frame
+
+    def _show_default(self):
+        """返回默认视图（刷题选择面板）。"""
+        if self._current_panel:
+            self._current_panel.pack_forget()
+            self._current_panel = None
+        self._open_practice()
 
     def _refresh_bank_info(self):
-        """刷新题库信息显示。"""
         stats = bank.get_statistics()
-        self._bank_label.config(text=f"📁 当前题库: {bank.active_name}")
+        self._bank_label.config(text=f"📁 {bank.active_name}")
         self._stats_label.config(
             text=f"共 {stats['total']} 题（单选 {stats['single']} | 多选 {stats['multi']} | 填空 {stats['fill']}）")
-
-    def _open_bank_switch(self):
-        """打开题库切换/管理窗口。"""
-        self.root.withdraw()
-        BankSwitchWindow(self.root, callback=self._on_bank_changed)
-
-    def _on_bank_changed(self):
-        """题库切换后的回调。"""
-        self._refresh_bank_info()
-        self.root.deiconify()
 
     # ---------- 自适应布局 ----------
 
     def _on_resize(self, event=None):
-        """窗口大小变化时检查并切换布局模式。"""
         if event and event.widget is not self.root:
             return
         self._update_layout()
 
     def _update_layout(self):
-        """根据当前窗口尺寸选择并应用布局。"""
         w = self.root.winfo_width()
         h = self.root.winfo_height()
         if w < 50 or h < 50:
             return
-
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
-        screen_area = screen_w * screen_h
-        window_area = w * h
-        threshold = screen_area / 3
-
-        new_mode = "large" if window_area >= threshold else "compact"
+        threshold = screen_w * screen_h / 3
+        new_mode = "large" if w * h >= threshold else "compact"
 
         if new_mode != self._layout_mode:
-            # 模式切换
             self._layout_mode = new_mode
             if new_mode == "compact":
                 self._apply_compact()
             else:
                 self._apply_large()
-        elif new_mode == "large":
-            # 大型模式内连续缩放：实时更新间距
-            self._apply_large()
 
     def _apply_compact(self):
-        """紧凑布局：小字体、间距=半按钮高、上下边距=一按钮高、无左右限制。"""
-        btn_font = ("Microsoft YaHei", 9)
-        btn_h = 24  # 紧凑模式按钮近似高度(px)
-        pady_gap = max(1, btn_h // 4)
-        margin_v = btn_h
-
-        self._title_frame.configure(padding=(12, 8, 12, 2))
-        self._title_label.configure(font=("Microsoft YaHei", 14, "bold"))
-        self._stats_label.configure(font=("Microsoft YaHei", 8))
-
-        self._btn_frame.pack_configure(fill="none", expand=True, padx=0, pady=margin_v)
-
-        for btn in self._buttons:
-            btn.configure(width=22)
-            btn.pack_configure(pady=pady_gap, fill="none")
-
-        self._apply_button_font(btn_font)
+        """紧凑模式：侧边栏仅图标（60px 宽），文字隐藏。"""
+        self._sidebar.configure(width=60)
+        for btn in self._sidebar_btns:
+            # 只保留第一行（图标）
+            icon = btn.cget("text").split("\n")[0]
+            btn.configure(text=icon, font=("Microsoft YaHei", 14, "bold"),
+                          padx=5, pady=8)
+        self._bank_label.configure(font=("Microsoft YaHei", 8))
 
     def _apply_large(self):
-        """大型布局：间距=半按钮高（动态计算）、左右边距=按钮宽/10。"""
-        win_w = self.root.winfo_width()
-        win_h = self.root.winfo_height()
-
-        # 可用垂直空间 ≈ 窗口高度 - 标题区(约60px) - 分隔线(约10px)
-        avail_h = max(200, win_h - 70)
-
-        # 7 按钮 + 6 间隙，间隙 = btn_h/2
-        # avail_h = 7*btn_h + 6*(btn_h/2) = 10*btn_h → btn_h = avail_h / 10
-        n_btns = len(self._buttons)
-        n_gaps = n_btns - 1
-        btn_h = avail_h / (n_btns + n_gaps * 0.5)
-        gap = btn_h / 2
-        pady_gap = max(1, int(gap / 2))  # pack pady 上下各一半
-        margin_v = max(4, int(btn_h))     # 上下边距 = 一个按钮高
-
-        # 左右边距 = 按钮宽度 / 10 → padx = win_w / 12
-        padx_h = max(10, win_w // 12)
-
-        btn_font = ("Microsoft YaHei", 12)  # 小四
-        self._title_frame.configure(padding=(padx_h, 15, padx_h, 8))
-        self._title_label.configure(font=("Microsoft YaHei", 20, "bold"))
-        self._stats_label.configure(font=("Microsoft YaHei", 10))
-
-        self._btn_frame.pack_configure(fill="both", expand=True,
-                                       padx=padx_h, pady=margin_v)
-
-        for btn in self._buttons:
-            btn.configure(width=0)
-            btn.pack_configure(pady=pady_gap, fill="both", expand=True)
-
-        self._apply_button_font(btn_font)
-
-    def _apply_button_font(self, font):
-        """通过 ttk.Style 设置按钮字体。"""
-        style = ttk.Style()
-        style.configure("Main.TButton", font=font)
-        for btn in self._buttons:
-            btn.configure(style="Main.TButton")
+        """大型模式：侧边栏展开（图标+文字，160px 宽）。"""
+        self._sidebar.configure(width=160)
+        texts = ["📝\n刷题模式", "⏱\n考试模式", "📕\n错题本", "📋\n题库管理"]
+        for btn, text in zip(self._sidebar_btns, texts):
+            btn.configure(text=text, font=("Microsoft YaHei", 11, "bold"),
+                          padx=10, pady=10)
+        self._bank_label.configure(font=("Microsoft YaHei", 9))
 
     # ---------- 各功能入口 ----------
 
@@ -824,42 +844,23 @@ class MainApp:
             messagebox.showinfo("提示", "题库为空，请先导入或添加题目！")
             return
 
-        # 弹出选择：正常刷题 / 错题本
-        choice_win = tk.Toplevel(self.root)
-        choice_win.title("选择刷题模式")
-        choice_win.resizable(False, False)
-        center_window(choice_win, 320, 180)
-        choice_win.focus_force()
+        panel = PracticeChoicePanel(self._content_area,
+                                     on_practice=self._start_practice,
+                                     on_wrong=self._start_practice_wrong)
+        self._show_panel(panel.frame)
 
-        frame = ttk.Frame(choice_win, padding=20)
-        frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="请选择刷题模式",
-                  font=("Microsoft YaHei", 12, "bold")).pack(pady=(0, 15))
+    def _start_practice(self):
+        self.root.withdraw()
+        PracticeWindow(self.root, bank.questions)
 
+    def _start_practice_wrong(self):
         wrong_indices = bank.get_wrong_indices()
-        wrong_count = len(wrong_indices)
-
-        def start_normal():
-            choice_win.destroy()
-            self.root.withdraw()
-            PracticeWindow(self.root, bank.questions)
-
-        def start_wrong():
-            if wrong_count == 0:
-                messagebox.showinfo("提示", "错题本为空，没有错题可刷。")
-                return
-            choice_win.destroy()
-            self.root.withdraw()
-            wrong_questions = [bank.questions[i] for i in wrong_indices]
-            PracticeWindow(self.root, wrong_questions,
-                           indices_map=wrong_indices, mode_name="错题本刷题")
-
-        ttk.Button(frame, text="📝 正常刷题（全部题目）",
-                   command=start_normal).pack(fill="x", pady=5)
-        ttk.Button(frame, text=f"📕 错题本刷题（{wrong_count} 题）",
-                   command=start_wrong).pack(fill="x", pady=5)
-        ttk.Button(frame, text="取消",
-                   command=choice_win.destroy).pack(pady=(10, 0))
+        if not wrong_indices:
+            messagebox.showinfo("提示", "错题本为空。")
+            return
+        wrong_questions = [bank.questions[i] for i in wrong_indices if i < len(bank.questions)]
+        self.root.withdraw()
+        PracticeWindow(self.root, wrong_questions, indices_map=wrong_indices, mode_name="错题本刷题")
 
     def _open_exam_setup(self):
         if not bank.questions:
@@ -868,21 +869,19 @@ class MainApp:
         self.root.withdraw()
         ExamSetupWindow(self.root)
 
-    def _open_bank_management(self):
-        self.root.withdraw()
-        BankManagementWindow(self.root)
+    def _open_wrong_book(self):
+        panel = WrongBookPanel(self._content_area, on_back=lambda: self._show_default())
+        self._show_panel(panel.frame)
 
-    def _open_import(self):
-        ImportWindow(self.root)
-
-    def _open_export(self):
-        if not bank.questions:
-            messagebox.showinfo("提示", "题库为空，无法导出！")
-            return
-        ExportWindow(self.root)
+    def _open_bank_hub(self):
+        """打开题库管理中心（合并面板）。"""
+        panel = BankHubPanel(self._content_area, on_back=lambda: self._show_default(),
+                             on_refresh=self._refresh_bank_info)
+        self._show_panel(panel.frame)
 
     def _open_statistics(self):
-        StatisticsWindow(self.root)
+        panel = StatisticsPanel(self._content_area)
+        self._show_panel(panel.frame)
 
     def _on_close(self):
         bank.save()
@@ -890,6 +889,616 @@ class MainApp:
 
     def run(self):
         self.root.mainloop()
+
+
+# ============================================================================
+# 刷题选择面板
+# ============================================================================
+
+class PracticeChoicePanel:
+    """刷题选择面板 —— 选择正常刷题或错题本刷题，含设置入口。"""
+
+    def __init__(self, parent, on_practice=None, on_wrong=None):
+        self.parent = parent
+        self.on_practice = on_practice
+        self.on_wrong = on_wrong
+        self.frame = ttk.Frame(parent)
+
+        self._build_ui()
+
+    def _build_ui(self):
+        inner = ttk.Frame(self.frame)
+        inner.pack(expand=True)
+
+        ttk.Label(inner, text="📝 刷题模式",
+                  font=("Microsoft YaHei", 18, "bold")).pack(pady=(0, 5))
+
+        wrong_count = len(bank.get_wrong_indices())
+        ttk.Label(inner, text=f"题库: {bank.active_name} | 错题: {wrong_count} 题",
+                  font=("Microsoft YaHei", 10), foreground="gray").pack(pady=(0, 20))
+
+        ttk.Button(inner, text="📝 正常刷题（全部题目）",
+                   command=self._start_normal, width=30).pack(pady=5)
+        ttk.Button(inner, text=f"📕 错题本刷题（{wrong_count} 题）",
+                   command=self._start_wrong, width=30).pack(pady=5)
+
+        # 设置区
+        ttk.Separator(inner, orient="horizontal").pack(fill="x", pady=15)
+        ttk.Label(inner, text="⚙ 刷题设置", font=("Microsoft YaHei", 10, "bold")).pack(anchor="w", pady=(0, 5))
+
+        set_frame = ttk.Frame(inner)
+        set_frame.pack(fill="x", pady=5)
+        ttk.Label(set_frame, text="刷题模式:").pack(side="left")
+        self._mode_var = tk.StringVar(value=config.get("practice_mode"))
+        ttk.Radiobutton(set_frame, text="随机", variable=self._mode_var,
+                        value="random", command=self._save_settings).pack(side="left", padx=10)
+        ttk.Radiobutton(set_frame, text="顺序", variable=self._mode_var,
+                        value="sequential", command=self._save_settings).pack(side="left", padx=10)
+
+        set_frame2 = ttk.Frame(inner)
+        set_frame2.pack(fill="x", pady=5)
+        self._answer_var = tk.BooleanVar(value=config.get("practice_show_answer"))
+        ttk.Checkbutton(set_frame2, text="默认显示正确答案",
+                        variable=self._answer_var,
+                        command=self._save_settings).pack(side="left")
+
+    def _save_settings(self):
+        config.set("practice_mode", self._mode_var.get())
+        config.set("practice_show_answer", self._answer_var.get())
+
+    def _start_normal(self):
+        if self.on_practice:
+            self.on_practice()
+
+    def _start_wrong(self):
+        if self.on_wrong:
+            self.on_wrong()
+
+
+# ============================================================================
+# 题库管理中心面板
+# ============================================================================
+
+class BankHubPanel:
+    """题库管理中心 —— 整合题库切换、题目管理、导入导出。"""
+
+    def __init__(self, parent, on_back=None, on_refresh=None):
+        self.parent = parent
+        self.on_back = on_back
+        self.on_refresh = on_refresh
+        self.frame = ttk.Frame(parent)
+
+        self._build_ui()
+
+    def _build_ui(self):
+        # 顶部栏
+        header = ttk.Frame(self.frame, padding=(10, 8))
+        header.pack(fill="x")
+        ttk.Label(header, text="📋 题库管理",
+                  font=("Microsoft YaHei", 14, "bold")).pack(side="left")
+        ttk.Button(header, text="↩ 返回", command=self._go_back).pack(side="right", padx=3)
+        ttk.Button(header, text="📥 导入TXT", command=self._import_txt).pack(side="right", padx=3)
+        ttk.Button(header, text="📤 导出TXT", command=self._export_txt).pack(side="right", padx=3)
+        ttk.Button(header, text="🔄 切换题库", command=self._switch_bank).pack(side="right", padx=3)
+
+        ttk.Separator(self.frame, orient="horizontal").pack(fill="x")
+
+        # 内容区：左右分栏
+        panes = ttk.Frame(self.frame)
+        panes.pack(fill="both", expand=True)
+
+        # 左栏：题目列表
+        left = ttk.Frame(panes)
+        left.pack(side="left", fill="both", expand=True)
+
+        # 搜索栏
+        search_frame = ttk.Frame(left, padding=5)
+        search_frame.pack(fill="x")
+        ttk.Label(search_frame, text="搜索:").pack(side="left")
+        self._search_var = tk.StringVar()
+        self._search_var.trace_add("write", lambda *a: self._refresh_questions())
+        ttk.Entry(search_frame, textvariable=self._search_var, width=25).pack(side="left", padx=5)
+        ttk.Button(search_frame, text="+ 添加", command=self._add_question).pack(side="right", padx=2)
+        ttk.Button(search_frame, text="✎ 编辑", command=self._edit_question).pack(side="right", padx=2)
+        ttk.Button(search_frame, text="✕ 删除", command=self._delete_question).pack(side="right", padx=2)
+
+        # 题目 Treeview
+        tree_frame = ttk.Frame(left, padding=5)
+        tree_frame.pack(fill="both", expand=True)
+        columns = ("#", "type", "preview")
+        self._qtree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
+        self._qtree.heading("#", text="序号")
+        self._qtree.heading("type", text="题型")
+        self._qtree.heading("preview", text="题目预览")
+        self._qtree.column("#", width=40, anchor="center")
+        self._qtree.column("type", width=50, anchor="center")
+        self._qtree.column("preview", width=350)
+        qscroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self._qtree.yview)
+        self._qtree.configure(yscrollcommand=qscroll.set)
+        self._qtree.pack(side="left", fill="both", expand=True)
+        qscroll.pack(side="right", fill="y")
+        self._qtree.bind("<Double-1>", lambda e: self._edit_question())
+
+        # 右栏：题库列表
+        right = ttk.Frame(panes, width=200)
+        right.pack(side="right", fill="y", padx=(5, 0))
+        right.pack_propagate(False)
+
+        ttk.Label(right, text="题库列表", font=("Microsoft YaHei", 10, "bold")).pack(pady=(5, 3))
+        self._blist = tk.Listbox(right, font=("Microsoft YaHei", 9), height=12)
+        bscroll = ttk.Scrollbar(right, orient="vertical", command=self._blist.yview)
+        self._blist.configure(yscrollcommand=bscroll.set)
+        self._blist.pack(side="left", fill="both", expand=True)
+        bscroll.pack(side="right", fill="y")
+
+        btn_col = ttk.Frame(right)
+        btn_col.pack(fill="x", pady=3)
+        ttk.Button(btn_col, text="➕ 新建", command=self._create_bank, width=8).pack(side="left", padx=1)
+        ttk.Button(btn_col, text="📋 复制", command=self._copy_bank, width=8).pack(side="left", padx=1)
+        ttk.Button(btn_col, text="💾 导出JSON", command=self._export_bank, width=10).pack(side="left", padx=1)
+        btn_col2 = ttk.Frame(right)
+        btn_col2.pack(fill="x", pady=2)
+        ttk.Button(btn_col2, text="📄 添加文件", command=self._add_file, width=10).pack(side="left", padx=1)
+        ttk.Button(btn_col2, text="📂 扫描文件夹", command=self._scan_dir, width=12).pack(side="left", padx=1)
+
+        self._refresh_all()
+
+    def _refresh_all(self):
+        self._refresh_bank_list()
+        self._refresh_questions()
+
+    def _refresh_bank_list(self):
+        self._blist.delete(0, "end")
+        for name in bank.list_banks():
+            marker = " ★" if name == bank.active_name else ""
+            self._blist.insert("end", f"{name}{marker}")
+            if name == bank.active_name:
+                self._blist.selection_set(self._blist.size() - 1)
+
+    def _refresh_questions(self):
+        for item in self._qtree.get_children():
+            self._qtree.delete(item)
+        keyword = self._search_var.get().strip().lower()
+        type_cn = {"single": "单选", "multi": "多选", "fill": "填空"}
+        for i, q in enumerate(bank.questions):
+            if keyword:
+                st = q.question.lower()
+                if isinstance(q, (SingleChoiceQuestion, MultiChoiceQuestion)):
+                    st += " " + " ".join(o.lower() for o in q.options)
+                if keyword not in st:
+                    continue
+            preview = q.question[:45] + ("..." if len(q.question) > 45 else "")
+            self._qtree.insert("", "end", iid=str(i),
+                               values=(i + 1, type_cn.get(q.qtype, q.qtype), preview))
+
+    def _get_selected_q(self) -> int:
+        sel = self._qtree.selection()
+        return int(sel[0]) if sel else -1
+
+    def _add_question(self):
+        QuestionEditWindow(self.frame, on_save=self._refresh_questions)
+
+    def _edit_question(self):
+        idx = self._get_selected_q()
+        if idx < 0:
+            messagebox.showinfo("提示", "请先选择题目。")
+            return
+        QuestionEditWindow(self.frame, question=bank.questions[idx], index=idx, on_save=self._refresh_questions)
+
+    def _delete_question(self):
+        idx = self._get_selected_q()
+        if idx < 0:
+            return
+        q = bank.questions[idx]
+        if messagebox.askyesno("确认删除", f"删除: {q.get_short_info()}？"):
+            del bank.questions[idx]
+            bank.save()
+            self._refresh_questions()
+
+    def _switch_bank(self):
+        sel = self._blist.curselection()
+        if not sel:
+            return
+        name = self._blist.get(sel[0]).rstrip(" ★")
+        bank.switch_bank(name)
+        self._refresh_all()
+        if self.on_refresh:
+            self.on_refresh()
+
+    def _create_bank(self):
+        dialog = tk.Toplevel(self.frame)
+        dialog.title("新建题库")
+        dialog.resizable(False, False)
+        center_window(dialog, 280, 120)
+        ttk.Label(dialog, text="题库名称:", font=("Microsoft YaHei", 10)).pack(pady=(15, 5))
+        name_var = tk.StringVar()
+        e = ttk.Entry(dialog, textvariable=name_var, width=25)
+        e.pack(pady=5)
+        e.focus()
+        def do():
+            n = name_var.get().strip()
+            if n and bank.create_bank(n):
+                bank.switch_bank(n)
+                dialog.destroy()
+                self._refresh_all()
+                if self.on_refresh:
+                    self.on_refresh()
+            else:
+                messagebox.showwarning("警告", "名称无效或已存在。")
+        ttk.Button(dialog, text="创建", command=do).pack(pady=(5, 10))
+        e.bind("<Return>", lambda ev: do())
+
+    def _copy_bank(self):
+        from shutil import copyfile
+        sel = self._blist.curselection()
+        if not sel:
+            return
+        name = self._blist.get(sel[0]).rstrip(" ★")
+        new_name = f"{name}_副本"
+        n = 1
+        while new_name in bank.list_banks():
+            n += 1
+            new_name = f"{name}_副本{n}"
+        if bank.create_bank(new_name):
+            src = bank._banks[name]
+            dst = bank._banks[new_name]
+            dst.questions = [q for q in src.questions]
+            dst.wrong_book = dict(src.wrong_book)
+            dst.save()
+            dst.save_wrong_book()
+            self._refresh_all()
+
+    def _export_bank(self):
+        sel = self._blist.curselection()
+        if not sel:
+            return
+        name = self._blist.get(sel[0]).rstrip(" ★")
+        fp = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")])
+        if not fp:
+            return
+        try:
+            data = [q.to_dict() for q in bank._banks[name].questions]
+            with open(fp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            messagebox.showinfo("导出成功", f"已导出到:\n{fp}")
+        except Exception as e:
+            messagebox.showerror("失败", str(e))
+
+    def _add_file(self):
+        fp = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
+        if fp and bank.add_bank_from_file(fp):
+            self._refresh_all()
+
+    def _scan_dir(self):
+        d = filedialog.askdirectory()
+        if d:
+            n = bank.scan_directory(d)
+            if n > 0:
+                self._refresh_all()
+            messagebox.showinfo("扫描完成", f"添加了 {n} 个题库。")
+
+    def _import_txt(self):
+        ImportWindow(self.frame)
+
+    def _export_txt(self):
+        if not bank.questions:
+            messagebox.showinfo("提示", "题库为空。")
+            return
+        ExportWindow(self.frame)
+
+    def _go_back(self):
+        if self.on_back:
+            self.on_back()
+
+
+# ============================================================================
+# 统计面板
+# ============================================================================
+
+class StatisticsPanel:
+    """统计面板 —— 嵌入内容区，含图表和导出。"""
+
+    def __init__(self, parent):
+        self.parent = parent
+        self.frame = ttk.Frame(parent)
+        self._build_ui()
+
+    def _build_ui(self):
+        header = ttk.Frame(self.frame, padding=(10, 8))
+        header.pack(fill="x")
+        ttk.Label(header, text="📊 统计信息",
+                  font=("Microsoft YaHei", 14, "bold")).pack(side="left")
+        ttk.Button(header, text="📤 导出报告", command=self._export).pack(side="right")
+
+        canvas = tk.Canvas(self.frame, height=340)
+        scrollbar = ttk.Scrollbar(self.frame, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        stats = bank.get_statistics()
+        ttk.Label(inner, text=f"题库: {bank.active_name} | 总题数: {stats['total']}",
+                  font=("Microsoft YaHei", 10), padding=10).pack(anchor="w")
+        ttk.Label(inner, text=f"单选: {stats['single']} | 多选: {stats['multi']} | 填空: {stats['fill']}",
+                  font=("Microsoft YaHei", 9), padding=(0, 10)).pack(anchor="w")
+
+        self._draw_bar(inner, stats)
+
+        ttk.Separator(inner, orient="horizontal").pack(fill="x", pady=8)
+        ttk.Label(inner, text="历史考试正确率趋势",
+                  font=("Microsoft YaHei", 10, "bold"), padding=10).pack(anchor="w")
+
+        if bank.history:
+            self._draw_trend(inner)
+            rates = [r["correct"] / r["total"] * 100 if r["total"] > 0 else 0 for r in bank.history]
+            avg = sum(rates) / len(rates)
+            ttk.Label(inner, text=f"平均正确率: {avg:.1f}%（{len(bank.history)} 次）",
+                      font=("Microsoft YaHei", 10), padding=10).pack(anchor="w")
+        else:
+            ttk.Label(inner, text="暂无考试记录。", foreground="gray", padding=10).pack(anchor="w")
+
+    def _draw_bar(self, parent, stats):
+        c = tk.Canvas(parent, width=380, height=130, bg="white", highlightthickness=1, highlightbackground="#ddd")
+        c.pack(pady=5)
+        labels = ["单选题", "多选题", "填空题"]
+        values = [stats["single"], stats["multi"], stats["fill"]]
+        colors = ["#4CAF50", "#2196F3", "#FF9800"]
+        mv = max(values) if max(values) > 0 else 1
+        bw, sx, by = 80, 45, 110
+        for i, (lb, vl, cl) in enumerate(zip(labels, values, colors)):
+            x = sx + i * (bw + 35)
+            h = vl / mv * 90
+            c.create_rectangle(x, by - h, x + bw, by, fill=cl, outline="")
+            c.create_text(x + bw / 2, by - h - 10, text=str(vl), font=("Microsoft YaHei", 9, "bold"))
+            c.create_text(x + bw / 2, by + 12, text=lb, font=("Microsoft YaHei", 9))
+
+    def _draw_trend(self, parent):
+        c = tk.Canvas(parent, width=380, height=120, bg="white", highlightthickness=1, highlightbackground="#ddd")
+        c.pack(pady=5)
+        rates = [r["correct"] / r["total"] * 100 if r["total"] > 0 else 0 for r in bank.history[-10:]]
+        if not rates:
+            return
+        by, ch = 100, 70
+        mr, mn = max(rates), min(rates)
+        if mr == mn:
+            mr = mn + 10
+        n = len(rates)
+        if n < 2:
+            c.create_text(190, 60, text=f"正确率: {rates[0]:.1f}%", font=("Microsoft YaHei", 11, "bold"))
+            return
+        step = 340 / (n - 1)
+        pts = []
+        for i, r in enumerate(rates):
+            x, y = 20 + i * step, by - (r - mn) / (mr - mn) * ch
+            pts.append((x, y))
+            c.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#E91E63", outline="")
+            c.create_text(x, by + 10, text=f"{r:.0f}%", font=("Microsoft YaHei", 7))
+        for i in range(len(pts) - 1):
+            c.create_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], fill="#E91E63", width=2)
+
+    def _export(self):
+        fp = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("文本", "*.txt")])
+        if not fp:
+            return
+        try:
+            stats = bank.get_statistics()
+            lines = ["统计报告", f"题库: {bank.active_name}", f"总题数: {stats['total']}",
+                     f"单选: {stats['single']} 多选: {stats['multi']} 填空: {stats['fill']}", ""]
+            for r in bank.history:
+                rate = r["correct"] / r["total"] * 100 if r["total"] > 0 else 0
+                lines.append(f"{r.get('date', '?')} | {r['total']}题 | {r['correct']}对 | {rate:.1f}%")
+            with open(fp, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            messagebox.showinfo("导出成功", f"已导出到:\n{fp}")
+        except Exception as e:
+            messagebox.showerror("失败", str(e))
+
+
+# ============================================================================
+# 设置面板（嵌入主窗口）
+# ============================================================================
+
+class SettingsPanel:
+    """设置面板 —— 修改用户偏好配置。"""
+
+    def __init__(self, parent, on_back=None):
+        self.parent = parent
+        self.on_back = on_back
+        self.frame = ttk.Frame(parent)
+
+        self._build_ui()
+
+    def _build_ui(self):
+        header = ttk.Frame(self.frame, padding=(15, 10))
+        header.pack(fill="x")
+        ttk.Label(header, text="⚙ 设置",
+                  font=("Microsoft YaHei", 14, "bold")).pack(side="left")
+        ttk.Button(header, text="↩ 返回主菜单",
+                   command=self._go_back).pack(side="right")
+
+        ttk.Separator(self.frame, orient="horizontal").pack(fill="x", padx=10)
+
+        form = ttk.Frame(self.frame, padding=20)
+        form.pack(fill="both", expand=True)
+
+        row1 = ttk.Frame(form)
+        row1.pack(fill="x", pady=8)
+        ttk.Label(row1, text="默认刷题模式:", width=18).pack(side="left")
+        self._mode_var = tk.StringVar(value=config.get("practice_mode"))
+        ttk.Radiobutton(row1, text="随机", variable=self._mode_var,
+                        value="random").pack(side="left", padx=10)
+        ttk.Radiobutton(row1, text="顺序", variable=self._mode_var,
+                        value="sequential").pack(side="left", padx=10)
+
+        row2 = ttk.Frame(form)
+        row2.pack(fill="x", pady=8)
+        ttk.Label(row2, text="默认显示答案:", width=18).pack(side="left")
+        self._answer_var = tk.BooleanVar(value=config.get("practice_show_answer"))
+        ttk.Checkbutton(row2, text="刷题时默认显示正确答案",
+                        variable=self._answer_var).pack(side="left", padx=10)
+
+        row3 = ttk.Frame(form)
+        row3.pack(fill="x", pady=8)
+        ttk.Label(row3, text="默认考试时长(分):", width=18).pack(side="left")
+        self._duration_var = tk.IntVar(value=config.get("exam_default_duration"))
+        ttk.Spinbox(row3, from_=1, to=180, textvariable=self._duration_var,
+                     width=6).pack(side="left", padx=10)
+
+        ttk.Separator(form, orient="horizontal").pack(fill="x", pady=15)
+        ttk.Label(form, text="快捷键: Ctrl+1~8 切换功能 | Ctrl+W 返回主菜单",
+                  font=("Microsoft YaHei", 9),
+                  foreground="gray").pack(anchor="w")
+
+        ttk.Button(form, text="💾 保存设置",
+                   command=self._save).pack(pady=(20, 0))
+
+    def _save(self):
+        config.set("practice_mode", self._mode_var.get())
+        config.set("practice_show_answer", self._answer_var.get())
+        config.set("exam_default_duration", self._duration_var.get())
+        messagebox.showinfo("保存成功", "设置已保存，下次启动生效。")
+
+    def _go_back(self):
+        if self.on_back:
+            self.on_back()
+
+
+# ============================================================================
+# 错题本面板（嵌入主窗口）
+# ============================================================================
+
+class WrongBookPanel:
+    """错题本面板 —— 显示错题统计、支持删除错题、启动错题刷题。"""
+
+    def __init__(self, parent, on_back=None):
+        self.parent = parent
+        self.on_back = on_back
+        self.frame = ttk.Frame(parent)
+
+        self._build_ui()
+        self._refresh()
+
+    def _build_ui(self):
+        # 顶部标题栏
+        header = ttk.Frame(self.frame, padding=(15, 10))
+        header.pack(fill="x")
+        ttk.Label(header, text="📕 错题本",
+                  font=("Microsoft YaHei", 14, "bold")).pack(side="left")
+        ttk.Button(header, text="↩ 返回主菜单",
+                   command=self._go_back).pack(side="right")
+        ttk.Button(header, text="🧹 清空错题本",
+                   command=self._clear_all).pack(side="right", padx=5)
+
+        # 统计信息
+        self._stats_label = ttk.Label(self.frame, text="", font=("Microsoft YaHei", 10),
+                                      padding=(15, 5))
+        self._stats_label.pack(anchor="w")
+
+        ttk.Separator(self.frame, orient="horizontal").pack(fill="x", padx=10)
+
+        # Treeview 错题列表
+        tree_frame = ttk.Frame(self.frame, padding=10)
+        tree_frame.pack(fill="both", expand=True)
+
+        columns = ("question", "type", "wrong_count")
+        self._tree = ttk.Treeview(tree_frame, columns=columns, show="headings",
+                                   selectmode="extended")
+        self._tree.heading("question", text="题目")
+        self._tree.heading("type", text="题型")
+        self._tree.heading("wrong_count", text="错误次数")
+        self._tree.column("question", width=400)
+        self._tree.column("type", width=60, anchor="center")
+        self._tree.column("wrong_count", width=70, anchor="center")
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical",
+                                   command=self._tree.yview)
+        self._tree.configure(yscrollcommand=scrollbar.set)
+        self._tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 底部操作栏
+        bottom = ttk.Frame(self.frame, padding=(15, 10))
+        bottom.pack(fill="x", side="bottom")
+
+        self._selection_label = ttk.Label(bottom, text="", font=("Microsoft YaHei", 9),
+                                          foreground="gray")
+        self._selection_label.pack(side="left")
+
+        ttk.Button(bottom, text="🗑 从错题本移除",
+                   command=self._remove_selected).pack(side="right", padx=5)
+        ttk.Button(bottom, text="📝 刷错题",
+                   command=self._practice_wrong).pack(side="right", padx=5)
+
+        # 绑定选择事件
+        self._tree.bind("<<TreeviewSelect>>", self._on_select)
+
+    def _refresh(self):
+        """刷新错题列表。"""
+        for item in self._tree.get_children():
+            self._tree.delete(item)
+
+        wrong_indices = bank.get_wrong_indices()
+        type_cn = {"single": "单选", "multi": "多选", "fill": "填空"}
+
+        for idx in wrong_indices:
+            if idx >= len(bank.questions):
+                continue
+            q = bank.questions[idx]
+            wc = bank.get_wrong_count(idx)
+            preview = q.question[:55] + ("..." if len(q.question) > 55 else "")
+            self._tree.insert("", "end", iid=str(idx),
+                              values=(preview, type_cn.get(q.qtype, q.qtype), wc))
+
+        total = len(wrong_indices)
+        self._stats_label.config(
+            text=f"错题总数: {total}   |   题库: {bank.active_name}")
+        self._selection_label.config(text=f"共 {total} 道错题")
+
+    def _on_select(self, event=None):
+        sel = self._tree.selection()
+        self._selection_label.config(text=f"已选中 {len(sel)} 道题")
+
+    def _remove_selected(self):
+        sel = self._tree.selection()
+        if not sel:
+            messagebox.showinfo("提示", "请先选中要移除的错题。")
+            return
+        for iid in sel:
+            idx = int(iid)
+            bank._active_bank.wrong_book.pop(idx, None)
+        bank._active_bank.save_wrong_book()
+        self._refresh()
+
+    def _clear_all(self):
+        if not bank.get_wrong_indices():
+            messagebox.showinfo("提示", "错题本已为空。")
+            return
+        if messagebox.askyesno("确认清空", "确定要清空整个错题本吗？此操作不可撤销。"):
+            bank._active_bank.wrong_book.clear()
+            bank._active_bank.save_wrong_book()
+            self._refresh()
+
+    def _practice_wrong(self):
+        wrong_indices = bank.get_wrong_indices()
+        if not wrong_indices:
+            messagebox.showinfo("提示", "错题本为空，没有错题可刷。")
+            return
+        wrong_questions = [bank.questions[i] for i in wrong_indices if i < len(bank.questions)]
+        if not wrong_questions:
+            messagebox.showinfo("提示", "错题对应的题目已不存在。")
+            return
+        # 获取顶层窗口
+        top = self.frame.winfo_toplevel()
+        top.withdraw()
+        PracticeWindow(top, wrong_questions,
+                       indices_map=wrong_indices, mode_name="错题本刷题")
+
+    def _go_back(self):
+        if self.on_back:
+            self.on_back()
 
 
 # ============================================================================
@@ -903,13 +1512,26 @@ class PracticeWindow:
                  mode_name: str = "刷题模式"):
         self.parent = parent
         self.questions = questions
-        self.indices_map = indices_map  # 错题本模式: shuffled[i] 对应题库真实索引
+        self.indices_map = indices_map
         self.mode_name = mode_name
+        self.is_random = (config.get("practice_mode") == "random")
+        self._progress_file = os.path.join(
+            BANKS_DIR, f"{bank.active_name}_progress.json")
+
+        # 初始化题目顺序
         self.shuffled = list(range(len(questions)))
-        random.shuffle(self.shuffled)
+        if self.is_random:
+            random.shuffle(self.shuffled)
+
         self.current_idx = 0
-        self.records: dict[int, bool] = {}  # shuffled_pos -> is_correct
-        self.show_answer_flag = tk.BooleanVar(value=False)
+        self.records: dict[int, bool] = {}
+        self.show_answer_flag = tk.BooleanVar(
+            value=config.get("practice_show_answer"))
+
+        # 尝试恢复上次进度
+        restored = False
+        if indices_map is None and self._try_restore_progress():
+            restored = True
 
         self.window = tk.Toplevel(parent)
         self.window.title(self.mode_name)
@@ -918,6 +1540,12 @@ class PracticeWindow:
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
+
+        if restored:
+            msg = (f"已恢复上次进度（第 {self.current_idx + 1}/{len(self.shuffled)} 题，"
+                   f"已答 {len(self.records)} 题）")
+            self._mode_label.config(text=f"模式: {'随机' if self.is_random else '顺序'} | {msg}")
+
         self._display_question()
         self._bind_keys()
 
@@ -938,6 +1566,13 @@ class PracticeWindow:
         hint = "← → 切换 | A/B/C/D 选择 | 回车 提交"
         ttk.Label(top_frame, text=hint, font=("Microsoft YaHei", 8),
                   foreground="gray").pack(side="left", padx=15)
+
+        self._mode_label = ttk.Label(top_frame, text="", font=("Microsoft YaHei", 8),
+                                     foreground="blue")
+        self._mode_label.pack(side="left", padx=10)
+
+        ttk.Button(top_frame, text="切换随机/顺序",
+                   command=self._toggle_mode).pack(side="right", padx=5)
 
         ttk.Button(top_frame, text="显示/隐藏答案",
                    command=self._toggle_answer).pack(side="right", padx=5)
@@ -1146,8 +1781,62 @@ class PracticeWindow:
         total = len(self.shuffled)
         answered = len(self.records)
         correct = sum(1 for v in self.records.values() if v)
+        # 完成时清除进度
+        if os.path.exists(self._progress_file):
+            os.remove(self._progress_file)
         ResultWindow(self.window, "练习成绩", total, answered, correct,
                      self.questions, self.shuffled, self.records)
+
+    # ---------- 进度持久化 ----------
+
+    def _try_restore_progress(self) -> bool:
+        """尝试恢复上次进度，返回是否成功。"""
+        if not os.path.exists(self._progress_file):
+            return False
+        try:
+            with open(self._progress_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            saved_shuffled = data.get("shuffled", [])
+            # 验证题库未变（题目数量一致）
+            if len(saved_shuffled) != len(self.shuffled):
+                return False
+            self.shuffled = saved_shuffled
+            self.current_idx = data.get("current_idx", 0)
+            self.records = {int(k): v for k, v in data.get("records", {}).items()}
+            return True
+        except (json.JSONDecodeError, ValueError, KeyError):
+            return False
+
+    def _save_progress(self):
+        """保存当前刷题进度。"""
+        if self.indices_map is not None:
+            return  # 错题本模式不保存进度
+        data = {
+            "shuffled": self.shuffled,
+            "current_idx": self.current_idx,
+            "records": {str(k): v for k, v in self.records.items()}
+        }
+        try:
+            with open(self._progress_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        except Exception:
+            pass
+
+    def _toggle_mode(self):
+        """切换随机/顺序模式。"""
+        if messagebox.askyesno("切换模式", "切换刷题模式将重置当前进度，确定继续？"):
+            self.is_random = not self.is_random
+            config.set("practice_mode", "random" if self.is_random else "sequential")
+            self.shuffled = list(range(len(self.questions)))
+            if self.is_random:
+                random.shuffle(self.shuffled)
+            self.current_idx = 0
+            self.records = {}
+            self._display_question()
+            self._mode_label.config(
+                text=f"模式: {'随机' if self.is_random else '顺序'} | 进度已重置")
+            if os.path.exists(self._progress_file):
+                os.remove(self._progress_file)
 
     def _on_close(self):
         self.window.unbind("<Left>")
@@ -1156,6 +1845,7 @@ class PracticeWindow:
         for letter in "ABCDEFGH":
             self.window.unbind(f"<KeyPress-{letter}>")
             self.window.unbind(f"<KeyPress-{letter.lower()}>")
+        self._save_progress()
         self.window.destroy()
         self.parent.deiconify()
 
@@ -1277,11 +1967,31 @@ class ExamWindow:
         self.window.focus_force()
 
         self.window.protocol("WM_DELETE_WINDOW", self._on_force_close)
+        # 防作弊：窗口失焦时警告
+        self.window.bind("<FocusOut>", self._on_focus_out)
+        self._focus_warnings = 0
 
         self._build_ui()
         self._display_question()
         self._start_timer()
         self._bind_keys()
+
+    def _on_focus_out(self, event=None):
+        """窗口失去焦点时警告，累计 3 次自动提交。"""
+        if self._submitted:
+            return
+        self._focus_warnings += 1
+        if self._focus_warnings >= 3:
+            messagebox.showwarning("防作弊",
+                                   "检测到多次切换窗口，试卷将自动提交！")
+            self._submitted = True
+            self._do_submit()
+        else:
+            self.window.lift()
+            self.window.focus_force()
+            messagebox.showwarning(
+                "警告",
+                f"考试期间请勿切换窗口！\n（第 {self._focus_warnings}/3 次警告）")
 
     def _bind_keys(self):
         """绑定键盘快捷键。"""
@@ -1551,29 +2261,42 @@ class ExamWindow:
 # ============================================================================
 
 class ResultWindow:
-    """成绩显示窗口。"""
+    """成绩显示窗口 —— 含成绩概览和逐题详情。"""
 
     def __init__(self, parent, title, total, answered, correct,
                  questions, indices, records):
         self.parent = parent
+        self.questions = questions
+        self.indices = indices
+        self.records = records
+        self.total = total
+        self.correct = correct
+
         self.window = tk.Toplevel(parent)
         self.window.title(title)
         self.window.resizable(False, False)
-        center_window(self.window, 420, 380)
+        center_window(self.window, 440, 420)
         self.window.focus_force()
+
+        self._build_main()
+
+    def _build_main(self):
+        """主成绩页面。"""
+        for w in self.window.winfo_children():
+            w.destroy()
 
         frame = ttk.Frame(self.window, padding=25)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text=f"📊 {title}",
+        ttk.Label(frame, text="📊 成绩报告",
                   font=("Microsoft YaHei", 16, "bold")).pack(pady=(0, 15))
 
-        correct_rate = (correct / total * 100) if total > 0 else 0
+        correct_rate = (self.correct / self.total * 100) if self.total > 0 else 0
 
         info_text = (
-            f"总题数：{total}\n"
-            f"已答题数：{answered}\n"
-            f"正确数：{correct}\n"
+            f"总题数：{self.total}\n"
+            f"已答题数：{sum(1 for v in self.records.values() if v is not None)}\n"
+            f"正确数：{self.correct}\n"
             f"正确率：{correct_rate:.1f}%\n"
         )
         ttk.Label(frame, text=info_text, font=("Microsoft YaHei", 12),
@@ -1585,11 +2308,11 @@ class ResultWindow:
                   font=("Microsoft YaHei", 10, "bold")).pack(anchor="w")
 
         type_stats = {"single": [0, 0], "multi": [0, 0], "fill": [0, 0]}
-        for idx in indices:
-            q = questions[idx]
+        for idx in self.indices:
+            q = self.questions[idx]
             if q.qtype in type_stats:
                 type_stats[q.qtype][0] += 1
-                if records.get(idx, False):
+                if self.records.get(idx, False):
                     type_stats[q.qtype][1] += 1
 
         type_cn = {"single": "单选题", "multi": "多选题", "fill": "填空题"}
@@ -1603,8 +2326,99 @@ class ResultWindow:
                 ttk.Label(frame, text=f"  {cn_name}: 无题目",
                           font=("Microsoft YaHei", 10)).pack(anchor="w")
 
-        ttk.Button(frame, text="关闭",
-                   command=self.window.destroy).pack(pady=(20, 0))
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill="x", pady=(20, 0))
+        ttk.Button(btn_frame, text="📋 查看逐题详情",
+                   command=self._show_details).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="关闭",
+                   command=self.window.destroy).pack(side="right", padx=5)
+
+    def _show_details(self):
+        """显示逐题作答详情。"""
+        for w in self.window.winfo_children():
+            w.destroy()
+
+        frame = ttk.Frame(self.window, padding=15)
+        frame.pack(fill="both", expand=True)
+
+        header = ttk.Frame(frame)
+        header.pack(fill="x", pady=(0, 10))
+        ttk.Label(header, text="📋 逐题详情",
+                  font=("Microsoft YaHei", 14, "bold")).pack(side="left")
+        ttk.Button(header, text="↩ 返回概览",
+                   command=self._build_main).pack(side="right")
+        ttk.Button(header, text="📤 导出TXT",
+                   command=self._export_details).pack(side="right", padx=5)
+
+        # 可滚动列表
+        canvas = tk.Canvas(frame, height=350)
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+        detail_frame = ttk.Frame(canvas)
+        detail_frame.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=detail_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        type_cn = {"single": "单选", "multi": "多选", "fill": "填空"}
+        for i, idx in enumerate(self.indices):
+            q = self.questions[idx]
+            is_correct = self.records.get(idx, None)
+            if is_correct is None:
+                status = "⚪ 未作答"
+            elif is_correct:
+                status = "✅ 正确"
+            else:
+                status = "❌ 错误"
+
+            row = ttk.Frame(detail_frame)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text=f"{i+1}.", width=4,
+                      font=("Consolas", 10)).pack(side="left")
+            ttk.Label(row, text=f"[{type_cn.get(q.qtype, '?')}]",
+                      width=8, font=("Microsoft YaHei", 9)).pack(side="left")
+            preview = q.question[:40] + ("..." if len(q.question) > 40 else "")
+            ttk.Label(row, text=preview, width=25,
+                      font=("Microsoft YaHei", 9)).pack(side="left")
+            ttk.Label(row, text=status, width=10,
+                      font=("Microsoft YaHei", 9, "bold")).pack(side="left")
+            correct_ans = q.get_answer_display()
+            ttk.Label(row, text=f"答案: {correct_ans}",
+                      font=("Microsoft YaHei", 8),
+                      foreground="green").pack(side="left", padx=(5, 0))
+
+    def _export_details(self):
+        """导出逐题详情为 TXT。"""
+        filepath = filedialog.asksaveasfilename(
+            title="导出作答详情",
+            defaultextension=".txt",
+            filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
+        if not filepath:
+            return
+        try:
+            type_cn = {"single": "单选", "multi": "多选", "fill": "填空"}
+            lines = ["逐题作答详情", "=" * 40, ""]
+            for i, idx in enumerate(self.indices):
+                q = self.questions[idx]
+                is_correct = self.records.get(idx, None)
+                if is_correct is None:
+                    status = "未作答"
+                elif is_correct:
+                    status = "正确"
+                else:
+                    status = "错误"
+                lines.append(
+                    f"{i+1}. [{type_cn.get(q.qtype, '?')}] {q.question}")
+                lines.append(f"   正确答案: {q.get_answer_display()}")
+                lines.append(f"   结果: {status}")
+                lines.append("")
+            lines.append(f"总计: {self.correct}/{self.total} 正确")
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            messagebox.showinfo("导出成功", f"详情已导出到:\n{filepath}")
+        except Exception as e:
+            messagebox.showerror("导出失败", str(e))
 
 
 # ============================================================================
@@ -1938,7 +2752,7 @@ class BankSwitchWindow:
         self.window = tk.Toplevel(parent)
         self.window.title("题库管理")
         self.window.resizable(False, False)
-        center_window(self.window, 450, 470)
+        center_window(self.window, 450, 530)
         self.window.focus_force()
         self.window.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -1977,8 +2791,15 @@ class BankSwitchWindow:
         btn_row2.pack(fill="x", pady=3)
         ttk.Button(btn_row2, text="➕ 创建新题库",
                    command=self._create).pack(side="left", padx=2)
+        ttk.Button(btn_row2, text="� 复制题库",
+                   command=self._copy_bank).pack(side="left", padx=2)
         ttk.Button(btn_row2, text="🗑 删除选中题库",
                    command=self._delete).pack(side="left", padx=2)
+
+        btn_row2b = ttk.Frame(frame)
+        btn_row2b.pack(fill="x", pady=3)
+        ttk.Button(btn_row2b, text="💾 导出题库JSON...",
+                   command=self._export_bank).pack(side="left", padx=2)
 
         # 外部题库导入按钮
         ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=(8, 5))
@@ -2096,6 +2917,50 @@ class BankSwitchWindow:
             if bank.delete_bank(name):
                 self._refresh_list()
                 messagebox.showinfo("删除成功", f"题库「{name}」已删除。")
+
+    def _copy_bank(self):
+        """复制选中的题库。"""
+        name = self._get_selected_name()
+        if not name:
+            return
+        new_name = f"{name}_副本"
+        n = 1
+        while new_name in bank.list_banks():
+            n += 1
+            new_name = f"{name}_副本{n}"
+        if not bank.create_bank(new_name):
+            messagebox.showwarning("失败", "创建副本失败。")
+            return
+        # 复制所有题目
+        src = bank._banks[name]
+        dst = bank._banks[new_name]
+        dst.questions = [q for q in src.questions]  # 浅拷贝（题目对象不可变）
+        # 复制错题本
+        dst.wrong_book = dict(src.wrong_book)
+        dst.save()
+        dst.save_wrong_book()
+        self._refresh_list()
+        messagebox.showinfo("复制成功", f"题库「{name}」已复制为「{new_name}」。")
+
+    def _export_bank(self):
+        """导出选中题库为独立 JSON 文件。"""
+        name = self._get_selected_name()
+        if not name:
+            return
+        filepath = filedialog.asksaveasfilename(
+            title=f"导出题库「{name}」",
+            defaultextension=".json",
+            filetypes=[("JSON 文件", "*.json"), ("所有文件", "*.*")])
+        if not filepath:
+            return
+        try:
+            qb = bank._banks[name]
+            data = [q.to_dict() for q in qb.questions]
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            messagebox.showinfo("导出成功", f"题库「{name}」已导出到:\n{filepath}")
+        except Exception as e:
+            messagebox.showerror("导出失败", str(e))
 
     def _add_file(self):
         """添加外部题库 JSON 文件。"""
@@ -2424,14 +3289,14 @@ class ExportWindow:
 # ============================================================================
 
 class StatisticsWindow:
-    """查看统计窗口。"""
+    """查看统计窗口 —— 含条形图和趋势图。"""
 
     def __init__(self, parent):
         self.parent = parent
         self.window = tk.Toplevel(parent)
         self.window.title("统计信息")
         self.window.resizable(False, False)
-        center_window(self.window, 480, 500)
+        center_window(self.window, 500, 600)
         self.window.focus_force()
 
         self._build_ui()
@@ -2441,83 +3306,132 @@ class StatisticsWindow:
         frame.pack(fill="both", expand=True)
 
         ttk.Label(frame, text="📊 统计信息",
-                  font=("Microsoft YaHei", 14, "bold")).pack(pady=(0, 15))
-
-        # 题库统计
-        ttk.Label(frame, text="── 题库统计 ──",
-                  font=("Microsoft YaHei", 11, "bold")
-                  ).pack(anchor="w", pady=(0, 5))
+                  font=("Microsoft YaHei", 14, "bold")).pack(pady=(0, 10))
 
         stats = bank.get_statistics()
-        ttk.Label(frame, text=f"总题数: {stats['total']}",
-                  font=("Microsoft YaHei", 10)).pack(anchor="w")
-        ttk.Label(frame, text=f"单选题: {stats['single']}",
-                  font=("Microsoft YaHei", 10)).pack(anchor="w")
-        ttk.Label(frame, text=f"多选题: {stats['multi']}",
-                  font=("Microsoft YaHei", 10)).pack(anchor="w")
-        ttk.Label(frame, text=f"填空题: {stats['fill']}",
-                  font=("Microsoft YaHei", 10)).pack(anchor="w")
+
+        # 题库统计
+        ttk.Label(frame, text="── 题库分布 ──",
+                  font=("Microsoft YaHei", 10, "bold")).pack(anchor="w")
+        ttk.Label(frame, text=f"总题数: {stats['total']}（单选 {stats['single']} | 多选 {stats['multi']} | 填空 {stats['fill']}）",
+                  font=("Microsoft YaHei", 10)).pack(anchor="w", pady=(0, 5))
+
+        # 条形图
+        self._draw_bar_chart(frame, stats)
 
         # 历史成绩
-        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=10)
+        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=8)
         ttk.Label(frame, text="── 历史考试成绩 ──",
-                  font=("Microsoft YaHei", 11, "bold")
-                  ).pack(anchor="w", pady=(0, 5))
+                  font=("Microsoft YaHei", 10, "bold")).pack(anchor="w")
 
         if not bank.history:
             ttk.Label(frame, text="暂无考试记录。",
                       font=("Microsoft YaHei", 10),
                       foreground="gray").pack(anchor="w", pady=5)
         else:
-            list_frame = ttk.Frame(frame)
-            list_frame.pack(fill="both", expand=True, pady=5)
+            self._draw_trend_chart(frame)
 
-            columns = ("date", "total", "correct", "rate", "time")
-            tree = ttk.Treeview(list_frame, columns=columns,
-                                 show="headings", height=8)
-            tree.heading("date", text="日期")
-            tree.heading("total", text="题量")
-            tree.heading("correct", text="正确")
-            tree.heading("rate", text="正确率")
-            tree.heading("time", text="用时")
-            tree.column("date", width=140)
-            tree.column("total", width=50, anchor="center")
-            tree.column("correct", width=50, anchor="center")
-            tree.column("rate", width=60, anchor="center")
-            tree.column("time", width=80, anchor="center")
+            avg_rate = sum(
+                r["correct"] / r["total"] * 100 if r["total"] > 0 else 0
+                for r in bank.history
+            ) / len(bank.history)
+            ttk.Label(frame,
+                      text=f"平均正确率: {avg_rate:.1f}%（{len(bank.history)} 次）",
+                      font=("Microsoft YaHei", 10, "bold")
+                      ).pack(anchor="w", pady=(5, 0))
 
-            scrollbar = ttk.Scrollbar(list_frame, orient="vertical",
-                                       command=tree.yview)
-            tree.configure(yscrollcommand=scrollbar.set)
-            tree.pack(side="left", fill="both", expand=True)
-            scrollbar.pack(side="right", fill="y")
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(fill="x", pady=(10, 0))
+        ttk.Button(btn_frame, text="📤 导出统计报告",
+                   command=self._export_report).pack(side="left")
+        ttk.Button(btn_frame, text="关闭",
+                   command=self.window.destroy).pack(side="right")
 
-            for rec in bank.history:
-                rate = (rec["correct"] / rec["total"] * 100
-                        if rec["total"] > 0 else 0)
-                used_min = rec.get("used_seconds", 0) // 60
-                used_sec = rec.get("used_seconds", 0) % 60
-                tree.insert("", "end", values=(
-                    rec.get("date", "未知"),
-                    rec["total"],
-                    rec["correct"],
-                    f"{rate:.1f}%",
-                    f"{used_min}分{used_sec}秒"
-                ))
+    def _draw_bar_chart(self, parent, stats):
+        """绘制题型分布条形图。"""
+        canvas = tk.Canvas(parent, width=440, height=150, bg="white",
+                           highlightthickness=1, highlightbackground="#ddd")
+        canvas.pack(pady=5)
 
-            if bank.history:
-                avg_rate = sum(
-                    r["correct"] / r["total"] * 100 if r["total"] > 0 else 0
-                    for r in bank.history
-                ) / len(bank.history)
-                ttk.Label(frame,
-                          text=f"平均正确率: {avg_rate:.1f}%"
-                               f"（共 {len(bank.history)} 次考试）",
-                          font=("Microsoft YaHei", 10, "bold")
-                          ).pack(anchor="w", pady=(10, 0))
+        labels = ["单选题", "多选题", "填空题"]
+        values = [stats["single"], stats["multi"], stats["fill"]]
+        colors = ["#4CAF50", "#2196F3", "#FF9800"]
+        max_val = max(values) if max(values) > 0 else 1
+        bar_w, start_x, base_y = 100, 50, 130
 
-        ttk.Button(frame, text="关闭",
-                   command=self.window.destroy).pack(pady=(15, 0))
+        for i, (label, val, color) in enumerate(zip(labels, values, colors)):
+            x = start_x + i * (bar_w + 30)
+            h = val / max_val * 100
+            canvas.create_rectangle(x, base_y - h, x + bar_w, base_y,
+                                    fill=color, outline="")
+            canvas.create_text(x + bar_w / 2, base_y - h - 10,
+                               text=str(val), font=("Microsoft YaHei", 9, "bold"))
+            canvas.create_text(x + bar_w / 2, base_y + 10,
+                               text=label, font=("Microsoft YaHei", 9))
+
+    def _draw_trend_chart(self, parent):
+        """绘制历史正确率趋势折线图。"""
+        canvas = tk.Canvas(parent, width=440, height=130, bg="white",
+                           highlightthickness=1, highlightbackground="#ddd")
+        canvas.pack(pady=5)
+
+        rates = [r["correct"] / r["total"] * 100 if r["total"] > 0 else 0
+                 for r in bank.history[-10:]]  # 最近 10 次
+        if not rates:
+            return
+
+        base_y, chart_h = 110, 80
+        max_r, min_r = max(rates), min(rates)
+        if max_r == min_r:
+            max_r = min_r + 10
+
+        n = len(rates)
+        if n < 2:
+            canvas.create_text(220, 65, text=f"正确率: {rates[0]:.1f}%",
+                               font=("Microsoft YaHei", 11, "bold"))
+            return
+
+        step_x = 400 / (n - 1)
+        points = []
+        for i, r in enumerate(rates):
+            x = 20 + i * step_x
+            y = base_y - (r - min_r) / (max_r - min_r) * chart_h
+            points.append((x, y))
+            canvas.create_oval(x - 3, y - 3, x + 3, y + 3, fill="#E91E63", outline="")
+            canvas.create_text(x, base_y + 10, text=f"{r:.0f}%",
+                               font=("Microsoft YaHei", 7))
+
+        for i in range(len(points) - 1):
+            canvas.create_line(points[i][0], points[i][1],
+                               points[i+1][0], points[i+1][1],
+                               fill="#E91E63", width=2)
+
+    def _export_report(self):
+        """导出统计报告为 TXT。"""
+        filepath = filedialog.asksaveasfilename(
+            title="导出统计报告",
+            defaultextension=".txt",
+            filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")])
+        if not filepath:
+            return
+        try:
+            stats = bank.get_statistics()
+            lines = ["统计报告", "=" * 40, "",
+                     f"题库: {bank.active_name}",
+                     f"总题数: {stats['total']}",
+                     f"单选题: {stats['single']}",
+                     f"多选题: {stats['multi']}",
+                     f"填空题: {stats['fill']}",
+                     "", "历史考试成绩:", "-" * 30]
+            for r in bank.history:
+                rate = r["correct"] / r["total"] * 100 if r["total"] > 0 else 0
+                lines.append(f"  {r.get('date', '?')} | {r['total']}题 | "
+                             f"{r['correct']}对 | {rate:.1f}%")
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            messagebox.showinfo("导出成功", f"报告已导出到:\n{filepath}")
+        except Exception as e:
+            messagebox.showerror("导出失败", str(e))
 
 
 # ============================================================================

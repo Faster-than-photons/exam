@@ -32,7 +32,7 @@
 **user**：根据新的 make 文件内容更新程序，更新完成后更新发行日志
 
 **assistant**：读取更新后的 `make` 文件（GUI 版规格），将整个程序从命令行重写为 Tkinter GUI：
-- 9 个窗口类：`MainApp`、`PracticeWindow`、`ExamSetupWindow`、`ExamWindow`、`ResultWindow`、`BankManagementWindow`、`QuestionEditWindow`、`ImportWindow`、`ExportWindow`、`StatisticsWindow`
+- 9+ 个窗口类
 - 新增考试模式（限时、禁看答案）
 - 新增历史记录（`history.json`）
 - 移除 `keyboard` 依赖，纯标准库
@@ -52,25 +52,15 @@
 
 **user**：修正代码，当前使用标准的类型检查，因此代码中存在报错，修正这些报错，更新开发日志
 
-**assistant**：修复 78 个 Pylance 类型错误：
-- 移除 `**btn_config` 字典解包 → 显式 `width=25`
-- `dict[int, any]` → `dict[int, object]`
-- 添加 `assert` 守卫消除 `None` 类型访问
-- 添加 `else: raise ValueError` 消除未绑定变量
-- 更新 `CHANGELOG.md` → v2.0.2
+**assistant**：修复 78 个 Pylance 类型错误：移除 `**btn_config`、`dict[int, any]`→`dict[int, object]`、添加 `assert` 守卫、添加 `else: raise ValueError`。更新 `CHANGELOG.md` → v2.0.2。
 
 ---
 
 ## 交互 #6 — 紧凑/大型双布局
 
-**user**：新的主界面空白太多了，保持紧凑的布局，下方不需要太多留白，放大后按钮也要合理的放大，而不是保持小按钮的形式，安排两种布局，当窗口面积小于当前屏幕 1/3 时使用精简布局，当大于这个阈值时使用大布局
+**user**：新的主界面空白太多了，保持紧凑的布局，下方不需要太多留白，放大后按钮也要合理的放大，安排两种布局：窗口面积 < 屏幕 1/3 时精简布局，≥ 阈值时大布局
 
-**assistant**：重构 `MainApp`：
-- 紧凑布局（< 1/3 屏幕）：小字体(14pt)、pady=2、固定按钮宽度 22 字符
-- 大型布局（≥ 1/3 屏幕）：大字体(20pt)、pady=5、按钮自动撑满
-- 使用 `place(relx=0.5, rely=0.5, anchor="center")` 居中按钮组
-- 绑定 `<Configure>` 事件动态切换
-- 更新 `CHANGELOG.md` → v2.0.3
+**assistant**：重构 `MainApp`：紧凑布局（< 1/3 屏幕）和大布局（≥ 1/3 屏幕），绑定 `<Configure>` 动态切换。更新 `CHANGELOG.md` → v2.0.3。
 
 ---
 
@@ -78,11 +68,7 @@
 
 **user**：按钮没有随窗口改变而改变
 
-**assistant**：`place()` 不响应父容器尺寸变化 → 改为纯 `pack()` 布局：
-- 紧凑模式：`fill="none"` 居中
-- 大型模式：`fill="x"` + `padx=30` 撑满
-- 清理残留代码
-- 更新 `CHANGELOG.md` → v2.0.4
+**assistant**：`place()`→ 纯 `pack()` 布局。更新 `CHANGELOG.md` → v2.0.4。
 
 ---
 
@@ -90,7 +76,7 @@
 
 **user**：当前按钮只有长会随着窗口改变而改变，高依旧是固定不变
 
-**assistant**：大型布局按钮从 `fill="x"` 改为 `fill="both", expand=True`，7 个按钮等分剩余垂直空间。更新 `CHANGELOG.md` → v2.0.5。
+**assistant**：`fill="x"` → `fill="both", expand=True`。更新 `CHANGELOG.md` → v2.0.5。
 
 ---
 
@@ -98,11 +84,7 @@
 
 **user**：导入题库失败时提示查看格式说明，没有相关页面或按钮提供格式说明
 
-**assistant**：更新 `ImportWindow`：
-- 右上角「📋 查看格式说明」按钮
-- 弹出详细格式规范窗口（含单选题/多选题/填空题完整示例）
-- 导入失败弹窗询问"是否查看格式说明"
-- 更新 `CHANGELOG.md` → v2.1.0
+**assistant**：`ImportWindow` 新增「📋 查看格式说明」按钮 + 格式规范弹窗 + 导入失败引导。更新 `CHANGELOG.md` → v2.1.0。
 
 ---
 
@@ -110,12 +92,7 @@
 
 **user**：调节当前主页面按钮的间距，确保间距保持在按键的一半高度上，与上下边界的距离保持在一个按键高度上，大布局的左右边界距离设为当前按钮长度的 1/10，小布局的左右边界无限制
 
-**assistant**：更新 `_apply_compact` 和 `_apply_large`：
-- pady = btn_h/4（间距 = 半按钮高）
-- 上下边距 = btn_h
-- 大型 padx = win_w/12（≈ 按钮宽/10）
-- 删除重复的 `_apply_button_font` 调用
-- 更新 `CHANGELOG.md` → v2.1.1
+**assistant**：pady = btn_h/4，上下边距 = btn_h，大型 padx = win_w/12。更新 `CHANGELOG.md` → v2.1.1。
 
 ---
 
@@ -123,22 +100,15 @@
 
 **user**：大型布局的按键间距肉眼可见并非半个按钮的高度，修正这个 bug
 
-**assistant**：两个根因：
-1. pady 使用固定值 → 改为动态计算 `btn_h = avail_h / (n_btns + n_gaps*0.5)`
-2. `_update_layout` 仅在模式切换时 apply → 大型模式下每次 resize 都重新计算
-- 更新 `CHANGELOG.md` → v2.1.2
+**assistant**：pady 改为动态计算 `btn_h = avail_h / (n_btns + n_gaps*0.5)`，大型模式每次 resize 重新计算。更新 `CHANGELOG.md` → v2.1.2。
 
 ---
 
 ## 交互 #12 — TXT 格式中文化
 
-**user**：修改题库格式中的 answer 为答案，格式中的空格不需要匹配，对填空题的空从 1 开始计数，将 blank 改为空，多选题的答案格式去掉逗号分隔，直接以 ABCD 的形式识别，其他的格式不需要改变
+**user**：修改题库格式中的 answer 为答案，格式中的空格不需要匹配，对填空题的空从 1 开始计数，将 blank 改为空，多选题的答案格式去掉逗号分隔，直接以 ABCD 的形式识别
 
-**assistant**：更新 `parse_txt`、`export_txt_str`、格式说明文档：
-- `answer:` → `答案:`（中英文冒号兼容）
-- 多选 `A,B,D` → `ABD`（逐字母识别）
-- `blank0:` → `空1:`（编号从 1 开始）
-- 更新 `CHANGELOG.md` → v2.2.0
+**assistant**：`answer:`→`答案:`、`A,B,D`→`ABD`、`blank0:`→`空1:`。更新 `CHANGELOG.md` → v2.2.0。
 
 ---
 
@@ -146,7 +116,7 @@
 
 **user**：填空的内部索引也从 1 开始，从 {1} 开始
 
-**assistant**：题目文本 `{0}`→`{1}`，`{1}`→`{2}`，同步更新格式说明和编辑提示。更新 `CHANGELOG.md` → v2.2.1。
+**assistant**：`{0}`→`{1}`，`{1}`→`{2}`。更新 `CHANGELOG.md` → v2.2.1。
 
 ---
 
@@ -154,11 +124,7 @@
 
 **user**：去除格式解析中对空格的硬性要求，不要因为某处有空格导致无法解析导入题目
 
-**assistant**：全部正则加入 `\s*` 容错：
-- 题型行：`1 . ( 单选题 ) 题目` 也能识别
-- 选项行：`A . xxx` / ` A. xxx` 均可匹配
-- 答案行/填空行全面宽容空白
-- 更新 `CHANGELOG.md` → v2.2.2
+**assistant**：全部正则加入 `\s*` 容错。更新 `CHANGELOG.md` → v2.2.2。
 
 ---
 
@@ -166,26 +132,15 @@
 
 **user**：添加管理多个题库的功能，主页导入题库默认创建一个新题库，也可选择向某个题库添加题目
 
-**assistant**：创建 `BankManager` 类：
-- `banks/` 目录存储，`index.json` 注册表
-- 主窗口显示题库名 + 「🔄 切换题库」按钮
-- `BankSwitchWindow`：切换/创建/重命名/删除
-- 导入窗口增加「导入目标」选项：当前题库/创建新题库/已有题库
-- 更新 `CHANGELOG.md` → v2.3.0
+**assistant**：创建 `BankManager` + `BankSwitchWindow` + 导入目标选择。更新 `CHANGELOG.md` → v2.3.0。
 
 ---
 
 ## 交互 #16 — 考试设置 + 错题本 + 键盘 + 字体
 
-**user**：修正考试设置，可以根据题库中的题型设置每种题型的题量，修正所有的按钮显示，去掉括号和其中的文字，添加错题功能，做错的题会自动加入到该题库的错题本中，并自动累计做错次数，刷题时可以选择正常刷题和从错题本中刷题。修正字体大小，大布局中字号加大至小四，做题时显示的字体加大到四号字体，增加键盘左右箭头切换题目功能，增加键盘点击字母选择对应选项功能
+**user**：修正考试设置按题型设置题量、去掉按钮括号文字、添加错题本功能、字体加大至小四/四号、键盘左右箭头和字母选择
 
-**assistant**：大规模更新：
-- `ExamSetupWindow`：按题型分别设置单选/多选/填空数量
-- 按钮文字：去掉所有括号注释（"刷题模式（练习）"→"刷题模式"）
-- 错题本：`banks/<name>_wrong.json`，自动累计，刷题入口弹出二选一
-- 字体：大布局按钮 12pt（小四），题目文本 14pt（四号）
-- 键盘：← → 切换题目，A~H 选择选项，Enter 提交
-- 更新 `CHANGELOG.md` → v2.4.0
+**assistant**：按题型考试设置、错题本自动记录、字体 12pt/14pt、键盘快捷键。更新 `CHANGELOG.md` → v2.4.0。
 
 ---
 
@@ -193,12 +148,7 @@
 
 **user**：将题库文件单独存放在一个文件夹中，每次导入题库都在这个文件夹中生成题库文件，也可以添加多个题库位置，直接从对应文件目录中读取题库文件
 
-**assistant**：重构 `BankManager`：
-- 每个题库记录实际文件路径（非名称派生）
-- 新增 `add_bank_from_file(path)` 和 `scan_directory(dir)` 方法
-- `BankSwitchWindow` 新增「📄 添加题库文件」和「📂 扫描文件夹」
-- 外部文件保留在原位，仅 `banks/` 内文件支持物理删除/重命名
-- 更新 `CHANGELOG.md` → v2.5.0
+**assistant**：重构 `BankManager` 路径管理 + 外部文件添加/扫描。更新 `CHANGELOG.md` → v2.5.0。
 
 ---
 
@@ -206,7 +156,71 @@
 
 **user**：整理本次会话的所有交互信息，存储在根目录的 AImaking.md 文件中，标明角色信息，不要使用我的真实姓名，我发送的信息一律以 user 角色标明
 
-**assistant**：创建本文件 `AImaking.md`，汇总全部 18 轮交互。
+**assistant**：创建 `AImaking.md`，汇总全部 18 轮交互，附版本演进总览和项目文件清单。
+
+---
+
+## 交互 #19 — 创建 .gitignore
+
+**user**：编写一个 github 仓库的 .gitignore 文件，确保题库文件夹不会被上传到 github 中
+
+**assistant**：创建 `.gitignore`，屏蔽 `banks/`、`__pycache__/`、虚拟环境、IDE 配置、系统文件。
+
+---
+
+## 交互 #20 — 错题本面板 + 单窗口架构
+
+**user**：优化错题本，应当在主界面可以直接查看错题本，进入错题本后首先显示错题统计表，在该页面下可以从错题本中删除错题，重构页面布局，将所有功能都在一个窗口中切换显示，不要使用太多新窗口
+
+**assistant**：重构 `MainApp` 面板切换机制 + 创建 `WrongBookPanel`（统计表+Treeview+删除+清空+刷错题）+ 刷题选择内嵌化。更新 `CHANGELOG.md` → v2.6.0。
+
+---
+
+## 交互 #21 — 待办事项确认
+
+**user**：继续完成待办事项
+
+**assistant**：确认 v2.6.0 全部 5 项待办已完成，代码零错误。
+
+---
+
+## 交互 #22 — v2.7.0 大型功能更新
+
+**user**：根据新的 make 文件内容更新程序
+
+**assistant**：实现配置系统、刷题进度持久化、随机/顺序模式、考试逐题详情+导出、防作弊、题库复制/导出、统计图表(Canvas条形图+折线图)、键盘快捷键。更新 `CHANGELOG.md` → v2.7.0。
+
+---
+
+## 交互 #23 — 追加交互记录 + 记忆指令
+
+**user**：整理新的交互信息追加到当前文件中，并将交互信息整理添加到默认执行当中，每次交互之后自动将该次交互内容存入 AImaking 文件中
+
+**assistant**：追加 #19~#23 到 AImaking.md，创建持久记忆 `/memories/repo/auto-log-interactions.md`（5条规则）。
+
+---
+
+## 交互 #24 — make 存档规则
+
+**user**：向自动执行功能中添加规则，如果当前交互中依据根目录中的 make 文件生成代码，则将该文件复制到 makelog 目录中并重命名为 make交互N，复制完成后清空根目录中的 make 文件内容
+
+**assistant**：更新记忆规则，新增第 6 条：基于 make 生成代码时 → 复制到 `makelog/make交互N` → 清空原文件。
+
+---
+
+## 交互 #25 — 确认自动执行机制
+
+**user**：这个自动执行功能是否真实存在？上次交互并没有自动追加到 AImaking 文件中
+
+**assistant**：坦承这是 AI 主动执行的记忆规则而非 OS 级自动化。补录遗漏的 #24，追加本次 #25。
+
+---
+
+## 交互 #26 — 检查文件规范 + 修复重复
+
+**user**：检查当前文件内容，确保符合记录交互信息的规范
+
+**assistant**：发现 AImaking.md 存在重复内容（交互 #19-#23 出现两次）和版本表/文件清单不完整。重建文件，确保 26 条交互编号连续无重复、版本演进表覆盖 v1.0.0~v2.7.0、项目文件清单完整。
 
 ---
 
@@ -222,14 +236,36 @@
 | v2.3.0 | 多题库管理 |
 | v2.4.0 | 按题型考试设置、错题本、键盘快捷键、字体加大 |
 | v2.5.0 | 外部题库路径支持 |
+| v2.6.0 | 错题本面板 + 单窗口面板切换架构 |
+| v2.7.0 | 配置系统、进度持久化、考试详情、统计图表、防作弊 |
+| v2.8.0 | 侧边栏布局重构 + 面板合并 |
 
 ## 项目文件清单
 
 | 文件 | 说明 |
 |------|------|
-| `main.py` | 主程序（Tkinter GUI，约 2200 行） |
+| `main.py` | 主程序（Tkinter GUI） |
 | `requirements.txt` | 依赖声明（零外部依赖） |
 | `CHANGELOG.md` | 发行日志 |
 | `AImaking.md` | AI 交互记录（本文件） |
+| `.gitignore` | Git 忽略规则 |
+| `config.json` | 用户偏好配置（自动生成） |
 | `make` | 需求规格说明书 |
 | `banks/` | 题库存储目录（自动生成） |
+| `makelog/` | make 文件历史存档（自动生成） |
+
+---
+
+## 交互 #27 — v2.8.0 侧边栏布局重构
+
+**user**：根据新的 make 文件内容生成代码，确保满足需求
+
+**assistant**：
+- 执行 make 存档规则：`make` → `makelog/make交互27`，清空原文件
+- 重构 `MainApp` 为左侧深色侧边栏（📊统计+主功能按钮+🚪退出）+ 右侧内容区
+- 创建 `PracticeChoicePanel`（刷题选择+设置集成）
+- 创建 `BankHubPanel`（题库管理+题目管理+导入导出合并）
+- 创建 `StatisticsPanel`（嵌入式统计面板含图表+导出）
+- 紧凑模式：侧边栏 60px 仅图标；大型模式：160px 图标+文字
+- 快捷键重映射：Ctrl+1~6 / Ctrl+W
+- 更新 `CHANGELOG.md` → v2.8.0
