@@ -4,6 +4,27 @@
 
 ---
 
+## [v3.0.0] - 2026-06-18
+
+### 🎨 重大重构：代码模块化
+
+#### 工程拆分
+- **`code/` 模块目录**：将 3500+ 行单文件拆分为 8 个模块
+  - `models.py` — 数据模型（Question 类族 + QuestionBank + BankManager + AppConfig）
+  - `utils.py` — 工具函数
+  - `ui_main.py` — 主窗口 MainApp
+  - `ui_panels.py` — 嵌入式面板（刷题选择、题库管理、统计、设置、错题本）
+  - `ui_practice.py` — 刷题窗口 PracticeWindow
+  - `ui_exam.py` — 考试模块（ExamSetupWindow + ExamWindow + ResultWindow）
+  - `ui_dialogs.py` — 对话框集合（题库管理、导入导出、编辑弹窗、统计窗口）
+- **`main.py` 精简为 40 行入口**：仅负责启动和样式初始化
+- **`README.md`**：工程架构文档、数据流图、快捷键总览
+
+#### 功能改进
+- **提交后自动跳题**：答对 → 0.5 秒后自动跳下一题；答错 → 停留，显示正确答案和错题次数
+
+---
+
 ## [v2.8.0] - 2026-06-18
 
 ### 🎨 重大重构：侧边栏 + 面板合并

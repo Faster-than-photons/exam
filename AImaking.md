@@ -269,3 +269,40 @@
 - 紧凑模式：侧边栏 60px 仅图标；大型模式：160px 图标+文字
 - 快捷键重映射：Ctrl+1~6 / Ctrl+W
 - 更新 `CHANGELOG.md` → v2.8.0
+
+---
+
+## 交互 #28 — 刷题窗口全屏 + 数字键 + 空格提交
+
+**user**：修改刷题模式默认窗口大小为全屏，修改选项文本的字号为小四字号，添加数字按键选择对应选项功能（1→A, 2→B...），添加空格键为提交功能
+
+**assistant**：
+- 刷题窗口默认 `state("zoomed")` 全屏
+- 选项字号已为小四（12pt）
+- 新增数字键 1~8 对应选项 A~H
+- 新增 `<space>` 空格键提交
+- `_on_close` 同步解绑所有新增快捷键
+- 更新快捷键提示文字
+
+---
+
+## 交互 #29 — 选项字号修复
+
+**user**：检查刷题模式中题目的字号，将各个选项的字号设为题目字号-2
+
+**assistant**：发现 `opt_font` 变量定义了但未实际应用到 ttk 控件（ttk.Radiobutton/Checkbutton 不支持直接 font 参数）。修复：通过 `ttk.Style` 创建 `Option.TRadiobutton` 和 `Option.TCheckbutton` 样式，字体设为 12pt（题目 14pt - 2），应用到选项控件。
+
+
+---
+
+## 交互 #30 — 自动跳题 + v3.0.0 代码重构
+
+**user**：更新提交功能（正确自动跳下一题），重构代码文件到 code/ 目录，main.py 精简为入口，版本命名为 3.0.0，创建 README.md
+
+**assistant**：
+- 提交逻辑：正确→0.5秒后自动跳下一题；错误→停留
+- 拆分 main.py 为 code/ 下 8 个模块（models, utils, ui_main, ui_panels, ui_practice, ui_exam, ui_dialogs）
+- main.py 精简为 40 行入口
+- 创建 README.md（工程架构、类关系图、数据流、快捷键总览）
+- 更新 CHANGELOG.md → v3.0.0
+
