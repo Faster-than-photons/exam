@@ -258,8 +258,8 @@ class QuestionBank:
             if qtype_cn == "单选题":
                 options, answer = [], ""
                 for line in lines[1:]:
-                    if line.lower().startswith("answer:"):
-                        answer = line.split(":", 1)[1].strip().upper()
+                    if re.match(r"^答案\s*[:：]", line):
+                        answer = re.split(r"[:：]", line, 1)[1].strip().upper()
                     elif re.match(r"^[A-Z]\.", line):
                         options.append(line)
                 if question_text and options and answer:
@@ -268,9 +268,10 @@ class QuestionBank:
             elif qtype_cn == "多选题":
                 options, answer = [], []
                 for line in lines[1:]:
-                    if line.lower().startswith("answer:"):
-                        raw = line.split(":", 1)[1].strip()
-                        answer = [a.strip().upper() for a in raw.split(",") if a.strip()]
+                    if re.match(r"^答案\s*[:：]", line):
+                        raw = re.split(r"[:：]", line, 1)[1].strip()
+                        # 直接识别连续字母，如 ABD
+                        answer = [ch.upper() for ch in raw if ch.isalpha()]
                     elif re.match(r"^[A-Z]\.", line):
                         options.append(line)
                 if question_text and options and answer:
@@ -279,9 +280,10 @@ class QuestionBank:
             elif qtype_cn == "填空题":
                 blank_dict = {}
                 for line in lines[1:]:
-                    m = re.match(r"^blank(\d+):\s*(.+)$", line, re.IGNORECASE)
+                    # 空1: 答案  →  idx=0
+                    m = re.match(r"^空\s*(\d+)\s*[:：]\s*(.+)$", line)
                     if m:
-                        idx = int(m.group(1))
+                        idx = int(m.group(1)) - 1  # 从1开始计数 → 内部从0
                         raw = m.group(2).strip()
                         blank_dict[idx] = [a.strip() for a in raw.split(",") if a.strip()]
                 blanks = [{"answers": blank_dict[k]} for k in sorted(blank_dict.keys())]
@@ -299,16 +301,16 @@ class QuestionBank:
                 lines.append(f"{i+1}.(单选题){q.question}")
                 for opt in q.options:
                     lines.append(opt)
-                lines.append(f"answer: {q.answer}")
+                lines.append(f"答案: {q.answer}")
             elif isinstance(q, MultiChoiceQuestion):
                 lines.append(f"{i+1}.(多选题){q.question}")
                 for opt in q.options:
                     lines.append(opt)
-                lines.append(f"answer: {','.join(q.answer)}")
+                lines.append(f"答案: {''.join(q.answer)}")
             elif isinstance(q, FillInBlankQuestion):
                 lines.append(f"{i+1}.(填空题){q.question}")
                 for j, blank in enumerate(q.blanks):
-                    lines.append(f"blank{j}: {','.join(blank['answers'])}")
+                    lines.append(f"空{j+1}: {','.join(blank['answers'])}")
             lines.append("")
         return "\n".join(lines)
 
@@ -1384,7 +1386,7 @@ class QuestionEditWindow:
                       text="填空答案设置（每空一行，格式: 答案1,答案2,答案3）:",
                       font=("Microsoft YaHei", 9)).pack(anchor="w")
             ttk.Label(self.dynamic_frame,
-                      text="题目中用 {0}、{1}... 表示填空位置",
+                      text="题目中用 {1}、{2}... 表示填空位置",
                       font=("Microsoft YaHei", 8),
                       foreground="gray").pack(anchor="w")
             self.blanks_text = scrolledtext.ScrolledText(
@@ -1554,6 +1556,7 @@ class ImportWindow:
   • 每道题占多行，题与题之间用空行分隔
   • 第一行格式: 序号.(题型)题目内容
   • 题型: 单选题 / 多选题 / 填空题
+  • 答案行使用中文「答案:」，不区分中英文冒号
 
 ──────────────────────────────────────────────
   1. 单选题
@@ -1563,11 +1566,11 @@ class ImportWindow:
   B. 北京
   C. 广州
   D. 深圳
-  answer: B
+  答案: B
 
   说明:
   - 选项以 A. B. C. D. 开头（支持任意数量选项）
-  - answer: 后填正确选项字母
+  - 答案: 后填正确选项字母（大小写均可）
 
 ──────────────────────────────────────────────
   2. 多选题
@@ -1577,23 +1580,23 @@ class ImportWindow:
   B. Java
   C. 中文
   D. C++
-  answer: A,B,D
+  答案: ABD
 
   说明:
-  - 多个答案用逗号分隔（如 A,B,D）
-  - 所有选项必须全选对才得分
+  - 答案以连续字母形式书写（如 ABD），不加逗号
+  - 所有正确选项必须全选对才得分
 
 ──────────────────────────────────────────────
   3. 填空题
 ──────────────────────────────────────────────
-  3.(填空题)世界上最高的山峰是 {0}，海拔 {1} 米。
-  blank0: 珠穆朗玛峰,珠峰
-  blank1: 8848.86,8848
+  3.(填空题)世界上最高的山峰是 {1}，海拔 {2} 米。
+  空1: 珠穆朗玛峰,珠峰
+  空2: 8848.86,8848
 
   说明:
-  - 题目中用 {0}、{1}... 标记填空位置
-  - blank0: 对应 {0} 的答案，多个可接受答案用逗号分隔
-  - 每个空的答案匹配任一即可得分
+  - 题目中用 {1}、{2}... 标记填空位置
+  - 空1 对应 {1}，空2 对应 {2}，从 1 开始编号
+  - 多个可接受答案用逗号分隔，匹配任一即可
 
 ══════════════════════════════════════════════════
   完整示例（3 道题，注意题间空行）
@@ -1603,17 +1606,17 @@ class ImportWindow:
   B. Dennis Ritchie
   C. James Gosling
   D. Bjarne Stroustrup
-  answer: A
+  答案: A
 
   2.(多选题)以下哪些是Python标准库？
   A. os
   B. json
   C. numpy
   D. random
-  answer: A,B,D
+  答案: ABD
 
-  3.(填空题)Python 中表示空值的常量是 {0}。
-  blank0: None,none
+  3.(填空题)Python 中表示空值的常量是 {1}。
+  空1: None,none
 """
         text.insert("1.0", help_content)
         text.configure(state="disabled")  # 只读
